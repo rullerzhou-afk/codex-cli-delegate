@@ -26,6 +26,38 @@ def hook_settings(script, state_dir, job, record):
                       for event in ('Stop', 'StopFailure', 'PostToolUseFailure', 'Notification')}}
 
 
+def record_hook(ctx, job_id, round_index, token, payload):
+    """Shared command-hook / SDK callback inbox with exact round binding."""
+    import claude_task as ct
+    if not isinstance(payload, dict) or payload.get('agent_id'):
+        return
+    with ct.StateLock(ctx.state_dir):
+        job = ctx.load(job_id)
+        index, record = ct.current_round(job)
+        if (index != round_index or record.get('run_token') != token
+                or record.get('finalized') or job.get('stop_requested')
+                or payload.get('session_id') != job['session_id']
+                or os.path.realpath(payload.get('cwd', '')) != os.path.realpath(job['cwd'])):
+            return
+        name = payload.get('hook_event_name')
+        if name not in ('Stop', 'StopFailure', 'PostToolUseFailure', 'Notification'):
+            return
+        if name == 'Notification' and payload.get('notification_type') != 'idle_prompt':
+            return
+        item = {'at': time.time(), 'hook': name,
+                'tool': ct.clip(payload.get('tool_name'), 80),
+                'tool_use_id': ct.clip(payload.get('tool_use_id'), 160),
+                'error': ct.clip(payload.get('error'), 600),
+                'detail': ct.clip(payload.get('error_details'), 600),
+                'is_interrupt': payload.get('is_interrupt') is True,
+                'stop_hook_active': payload.get('stop_hook_active') is True}
+        target = Path(ct.round_dir(ctx.job_dir(job_id), index)) / 'hooks.ndjson'
+        fd = os.open(str(target), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, 'a') as out:
+            fcntl.flock(out.fileno(), fcntl.LOCK_EX)
+            out.write(json.dumps(item, ensure_ascii=False) + '\n')
+
+
 def receive_hook():
     import claude_task as ct
     parser = argparse.ArgumentParser()
@@ -41,34 +73,8 @@ def receive_hook():
         if len(raw) > 1_048_576:
             return
         payload = json.loads(raw)
-        if not isinstance(payload, dict) or payload.get('agent_id'):
-            return
         ctx = ct.Context(args.state_dir)
-        with ct.StateLock(ctx.state_dir):
-            job = ctx.load(args.job)
-            index, record = ct.current_round(job)
-            if (index != args.round or record.get('run_token') != args.token
-                    or record.get('finalized') or job.get('stop_requested')
-                    or payload.get('session_id') != job['session_id']
-                    or os.path.realpath(payload.get('cwd', '')) != os.path.realpath(job['cwd'])):
-                return
-            name = payload.get('hook_event_name')
-            if name not in ('Stop', 'StopFailure', 'PostToolUseFailure', 'Notification'):
-                return
-            if name == 'Notification' and payload.get('notification_type') != 'idle_prompt':
-                return
-            item = {'at': time.time(), 'hook': name,
-                    'tool': ct.clip(payload.get('tool_name'), 80),
-                    'tool_use_id': ct.clip(payload.get('tool_use_id'), 160),
-                    'error': ct.clip(payload.get('error'), 600),
-                    'detail': ct.clip(payload.get('error_details'), 600),
-                    'is_interrupt': payload.get('is_interrupt') is True,
-                    'stop_hook_active': payload.get('stop_hook_active') is True}
-            target = Path(ct.round_dir(ctx.job_dir(args.job), index)) / 'hooks.ndjson'
-            fd = os.open(str(target), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, 'a') as out:
-                fcntl.flock(out.fileno(), fcntl.LOCK_EX)
-                out.write(json.dumps(item, ensure_ascii=False) + '\n')
+        record_hook(ctx, args.job, args.round, args.token, payload)
     except (OSError, ValueError, TypeError, ct.CliError):
         return
 

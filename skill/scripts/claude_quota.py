@@ -128,12 +128,15 @@ def refresh_from_jobs(state_dir, home=None):
                 size = os.fstat(f.fileno()).st_size; f.seek(max(0, size - 4 * 1024 * 1024))
                 if f.tell(): f.readline()
                 lines = f.read(4 * 1024 * 1024).splitlines(keepends=True)
+            seen_windows = set()
             for line in reversed(lines):
                 if not line.endswith(b'\n'): continue
                 try: event = json.loads(line)
                 except ValueError: continue
                 buckets = parse_event(event, session)
+                buckets = {k:v for k,v in buckets.items() if k not in seen_windows}
                 if buckets:
+                    seen_windows.update(buckets)
                     source = dict(kind='native_stream_import', session_id=session, path=str(path),
                                   event_sha256=fingerprint(event), time_basis='source_mtime')
                     # Never make an already observed event appear newer merely
@@ -141,7 +144,8 @@ def refresh_from_jobs(state_dir, home=None):
                     existing = read(cache_path(state_dir, home)).get('windows', {})
                     buckets = {k:v for k,v in buckets.items() if existing.get(k, {}).get('source', {}).get('event_sha256') != source['event_sha256']}
                     store(state_dir, buckets, source, observed_at=modified, home=home)
-                    break
+                    if len(seen_windows) == len(WINDOWS):
+                        break
         except OSError: continue
     return status(state_dir, home)
 

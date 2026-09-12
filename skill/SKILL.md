@@ -1,77 +1,34 @@
 ---
 name: codex-cli-delegate
-description: Delegate authorized coding and review tasks from Codex to Claude Code, Kimi Code, or OpenCode; track exact remote Windows Codex turns. Use for delegation, same-session revisions, completion monitoring, evidence export, and recovery. Codex plans and independently accepts results.
+description: Delegate authorized coding and review tasks to Claude Code, Kimi Code, or OpenCode through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance. Also tracks exact remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
 
-Use `scripts/delegate.py` from this skill's actual installed path. Default backend: Claude. Select Kimi with `start --backend kimi` and OpenCode with `start --backend opencode`. The backend stays fixed within a job; revisions resume its saved session. Reuse existing CLI installations and logins.
+Codex prepares the task and independently reviews the result. Prefer the `codex-cli-delegate` MCP; Claude uses a persistent Agent SDK connection. For setup and protocol details, read [MCP and SDK](references/mcp.md). If MCP is unavailable or you are diagnosing an older job, use the retained [CLI workflow](references/cli-workflow.md) and `scripts/delegate.py`. Missing tools are not a reason to dispatch the same work again.
 
-This is a community skill, not an official integration from any CLI or model provider. The local runner is validated on macOS. Copying the skill to Windows does not make it a Windows local runner.
+## MCP workflow
 
-## Select the route
+- `delegate_start`: provide task text, the intended checkout, authorized scope, acceptance criteria, and necessary inputs. Use the calling Codex task's actual ID as `owner`, not the MCP server's startup task ID.
+- Generate one stable `request_id` per new dispatch or revision. Retry an uncertain call with the same ID and identical parameters; use a new ID for changed work. Save the returned job ID, round, session ID, and cursor.
+- `delegate_wait`: wait inside the program, normally 600 seconds, without model polling. Start with cursor `-1:0`, then pass the returned cursor. A wait timeout does not mean the job failed; continue waiting without restarting it.
+- `awaiting_review` means execution evidence passed verification. Inspect the actual diff, prior-edit baseline, artifacts, and relevant tests. For corrections, use `delegate_revise` with the current `expected_round` to continue the same backend session. Revisions are unlimited by default; diagnose repeated failures rather than retrying mechanically.
+- `delegate_accept`: supply the current round and actual independent review notes. Acceptance closes the idle SDK connection and releases the checkout lock; it does not publish or merge changes.
+- After interruption, recover the original work using `delegate_list` / `delegate_status`. Wait if running. Inspect failed or stopped rounds before revising with `recover=true`. `delegate_stop` stops only verified owned processes and preserves files and sessions.
 
-- Claude: read [quota and required inputs](references/quota-and-inputs.md). Uses per-round restricted settings and hooks.
-- Kimi: read [Kimi setup and native evidence](references/kimi.md). Requires existing thinking configuration and three explicitly installed managed hooks. Normal dispatch checks them without rewriting user configuration.
-- OpenCode: read [OpenCode tools and hooks](references/opencode.md). Adds a per-process plugin while preserving existing plugins. Default profile is read-only.
-- Remote Windows Codex: read [remote observation](references/remote-codex.md) and use `scripts/remote_codex.py`. This observes an already identified remote turn; it does not dispatch a new Codex turn.
+## Constraints
 
-The supporting references currently contain detailed Chinese operating notes; public setup is documented in the repository's English README and Chinese companion.
+- Preserve the user's authorized scope and existing changes. Use isolated worktrees when concurrent edits require them. Keep real jobs in the shared default state root `${CODEX_HOME:-~/.codex}/claude-delegate`; custom state roots are for isolated tests.
+- Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.
+- Claude uses restricted task settings. Declare outside references with `read_dirs`, required inputs with `required_files`, and only narrow authorized Bash rules in `allow_tools`. SDK mode rejects Bash `run_in_background`; do not authorize commands that background themselves or evade the write scope. This is not an OS sandbox. To change read directories, stop and use CLI `revise --recover --read-dir` on the existing job.
+- Any applicable Claude quota window at 90% pauses subsequent dispatches and revisions while allowing the active round to finish. Unknown or stale quota is not zero. Do not bypass a pause with a different account, model, threshold, or state root. Read [quota and inputs](references/quota-and-inputs.md) when needed.
+- Preserve complete visible model output and exact provenance for material findings, blockers, architecture decisions, or disagreements. Follow [evidence and adjudication](references/review-evidence.md), independently decide each finding, and pass `evidence_dir` to accept. Status summaries are not original evidence; identify reviewers who did not participate.
+- Keep the calling task active through waiting, review, and necessary revisions until acceptance, user cancellation, or an actionable blocker. An idle worker does not guarantee waking an ended Codex task.
 
-## Authorization and task preparation
+## Backend references
 
-1. Establish the task, acceptance criteria, authorized directories and tools, and applicable project instructions. Save a task file with enough context to execute the work. Do not send credentials, unrelated conversations, or unnecessary files.
-2. Use the calling task's real `CODEX_THREAD_ID` as owner. If unavailable, pass its actual identifier with `--owner`; never borrow another task's owner.
-3. Use the intended existing checkout or an authorized isolated worktree, preserving any prior edits. Record the baseline for independent review.
-4. Keep real jobs on the shared default state directory `${CODEX_HOME:-~/.codex}/claude-delegate`. Its legacy name preserves checkout locks and recovery compatibility. A different state root bypasses cross-job conflict detection; reserve `--state-dir` for isolated tests.
-5. Give only the tools needed for the authorized task. Claude command rules use `--allow-tool`; Kimi and OpenCode tool selections are separate and not interchangeable. Bash permission in those backends grants the whole shell tool, not a command allowlist. Do not bypass permissions.
-6. For Claude, pass required files with `--require-file` and explicitly authorized outside reference directories with `--read-dir`. Read large files in chunks; truncated output is not the full file. OpenCode currently does not support those flags.
+- [Kimi](references/kimi.md) and [OpenCode](references/opencode.md): native CLI adapters, tool selection, configuration, and existing hooks. Their Bash permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented. Pi is not implemented.
+- [Remote Windows Codex](references/remote-codex.md): observe an exact existing remote session/turn, then verify its artifacts. This is separate from local delegation and uses `scripts/remote_codex.py`.
+- [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 
-Restricted settings do not create an OS sandbox or a worktree. Check the actual modified paths and artifacts. Delegation does not confer permission to publish, push, merge, deploy, send external messages, or alter unrelated user configuration.
-
-## Verified profiles
-
-| Backend | Fixed model | Effort / variant |
-| --- | --- | --- |
-| Claude Code | `claude-opus-5` | `max` |
-| Kimi Code | `kimi-code/k3-256k` | `max` |
-| OpenCode | `deepseek/deepseek-flash` | `high` |
-
-These are the current adapter profiles, not universal recommendations or arbitrary-model support. Do not substitute models in task text. A requested model change requires adapting the invocation and native verification together and validating the new profile. Report mismatched settings, rejected API requests, and missing evidence; never silently downgrade.
-
-## Dispatch, wait, review
-
-Before waiting, read [events and quiet waiting](references/events.md). Keep the calling Codex task active until completion, independent review, user cancellation, or an actionable blocker. A launched worker does not wake a task that has already ended.
-
-```text
-python3 <absolute-skill-path>/scripts/delegate.py start --cwd <directory> --prompt-file <task-file>
-python3 <absolute-skill-path>/scripts/delegate.py await-event <job-id> --after=-1:0
-python3 <absolute-skill-path>/scripts/delegate.py status <job-id>
-```
-
-Save the job ID, backend, session, cwd, and cursor. Continue with the cursor returned by `await-event`; do not poll full transcripts or create a new job because a tool wait yielded. Observe the current environment's wait limits. Error notifications and 10/15-minute checkpoints indicate what to inspect, not automatic permission to stop or restart a model.
-
-Completion hooks and idle events are hints. Only `awaiting_review` with verified native completion is ready for review; it is not acceptance. Independently inspect diffs, rejected tools, test results, and requested artifacts. Backend final text alone cannot prove the task succeeded.
-
-```text
-python3 <absolute-skill-path>/scripts/delegate.py revise <job-id> --prompt-file <revision-file>
-python3 <absolute-skill-path>/scripts/delegate.py await-event <job-id> --after <saved-cursor>
-python3 <absolute-skill-path>/scripts/delegate.py accept <job-id> --notes-file <review-notes>
-```
-
-Revisions are unlimited by default, with per-round timeout and error/progress monitoring. Repeated identical failures without progress require diagnosis, not mechanical retries. Explicit finite limits remain supported; `0` disables revisions. For an old capped job, `revise --max-revisions unlimited` removes that cap without changing sessions when authorized by the user.
-
-Claude quota at or above 90% in any applicable native window pauses new dispatches and revisions while letting the current round finish. Report the affected window and continue its review. Unknown/stale quota is not zero; absent reliable usage may allow a dispatch, so this is not a guaranteed hard spending cap. Do not bypass a pause using another state directory, threshold, account, or model. Kimi and DeepSeek account quota are not monitored by this feature.
-
-## Evidence and recovery
-
-For material findings, blockers, architectural decisions, or disagreements, read [original evidence and adjudication](references/review-evidence.md). Export the current round's visible model text and source metadata; preserve both accepted and rejected findings with the independent decision and its basis. Do not publish private reasoning. Use `accept --evidence-dir` when material review evidence is required. State who did and did not review the work.
-
-```text
-python3 <absolute-skill-path>/scripts/delegate.py list
-python3 <absolute-skill-path>/scripts/delegate.py stop <job-id>
-```
-
-After interruption, inspect the original job before dispatching again. If it is running, resume waiting; if handed off, continue review. For orphaned processes, uncertain identity, missing records, or eligible evidence-only revalidation, read [recovery](references/recovery.md). Stop only verified owned processes; preserve evidence and work files. Do not present unsaved sessions as resumable.
-
-Report the result, actual verified profile, independent checks, remaining limitations, and job/evidence locations. Runtime evidence and credentials stay local; publishing this tool does not authorize uploading task records.
+The local runner is validated on macOS. Runtime evidence and credentials remain local; publishing the tool does not authorize uploading task records.

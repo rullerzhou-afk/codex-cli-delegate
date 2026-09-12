@@ -1,0 +1,3 @@
+# Keep the transport and MCP protocol versions reproducible.
+claude-agent-sdk==0.2.152
+mcp==2.2.0

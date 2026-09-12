@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Delegate implementation work from a Codex task to a local Claude Code CLI.
 
-Codex plans and reviews; this CLI launches, supervises and verifies one Claude
-Code run per round.  No daemon: ``start``/``revise`` spawn a detached,
-session-leading worker (the private ``_worker`` subcommand of this same file)
-that exits when its single Claude invocation ends.
+Codex plans and reviews. CLI transport starts one detached worker per round;
+SDK transport keeps one worker and native client connected across reviewed
+rounds. Both use the private ``_worker`` entrypoint and shared job state.
 
 Invariants:
 
@@ -15,15 +14,15 @@ Invariants:
 * Each round carries a single-use ``launch_claim``; a second private worker for
   the same round cannot invoke Claude again.  Every worker write is guarded by
   current_round + run token + claim.
-* Nothing passes on Claude's say-so.  A round reaches ``awaiting_review`` only
-  with exit 0, exactly one result event whose ``is_error is False`` and
+* Nothing passes on Claude's say-so. A round reaches ``awaiting_review`` only
+  with exit 0 (CLI) or an SDK result boundary, exactly one result event whose ``is_error is False`` and
   ``subtype == "success"`` and whose ``session_id`` equals the saved session,
   assistant events reporting ``claude-opus-5``, and a local transcript whose new
   assistant entries all record ``effort=max``.  Acceptance stays a Codex act.
 * Signals go only to a PID whose recorded start time and unique run token still
   match.  ``ps`` failure is never read as proof a process is gone.
 
-Python 3.9+, standard library only, macOS first.
+CLI: Python 3.9+, standard library. SDK/MCP: Python 3.12+, pinned dependencies. macOS first.
 """
 
 from __future__ import annotations
@@ -41,6 +40,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 
@@ -838,6 +838,10 @@ def parse_stream(path):
                     "num_turns": event.get("num_turns"),
                 }
                 summary["result_session_id"] = event.get("session_id")
+                usage = event.get("usage")
+                if isinstance(usage, dict):
+                    summary["usage"] = {k: usage[k] for k in ("input_tokens", "cache_creation_input_tokens",
+                        "cache_read_input_tokens", "output_tokens") if k in usage}
                 text = event.get("result")
                 if isinstance(text, str):
                     summary["result_text"] = text
@@ -864,7 +868,7 @@ def encode_project_path(path):
     return re.sub(r"[^A-Za-z0-9]", "-", path)
 
 
-def find_transcript(session_id, cwd):
+def find_transcript(session_id, cwd, config_dir=None):
     """Locate exactly one transcript file for this session id.
 
     Preferred: the ``projects/<encoded cwd>/<session>.jsonl`` layout.  The
@@ -872,7 +876,7 @@ def find_transcript(session_id, cwd):
     match, so no unrelated session is ever opened.
     """
     require_uuid(session_id, "session id")
-    projects = os.path.join(claude_config_dir(), "projects")
+    projects = os.path.join(config_dir or claude_config_dir(), "projects")
     candidates = []
     for base in (cwd, os.path.realpath(cwd)):
         candidate = os.path.join(projects, encode_project_path(base), session_id + ".jsonl")
@@ -983,7 +987,7 @@ def read_transcript_assistants(path):
     return entries, version
 
 
-def snapshot_assistant_baseline(session_id, cwd):
+def snapshot_assistant_baseline(session_id, cwd, config_dir=None):
     """Pre-existing assistant uuids, plus how trustworthy that baseline is.
 
     An ambiguous or unreadable lookup must not collapse into an empty baseline:
@@ -991,7 +995,7 @@ def snapshot_assistant_baseline(session_id, cwd):
     round and fails verification later.
     """
     try:
-        path, how = find_transcript(session_id, cwd)
+        path, how = find_transcript(session_id, cwd, config_dir)
     except CliError:
         return [], "ambiguous"
     if not path:
@@ -1005,7 +1009,7 @@ def snapshot_assistant_baseline(session_id, cwd):
     return [entry["uuid"] for entry in entries], "ok"
 
 
-def verify_transcript(session_id, cwd, prior_uuids, baseline_status, stream_assistants=None):
+def verify_transcript(session_id, cwd, prior_uuids, baseline_status, stream_assistants=None, config_dir=None):
     out = {
         "transcript_found": False,
         "lookup": None,
@@ -1024,7 +1028,7 @@ def verify_transcript(session_id, cwd, prior_uuids, baseline_status, stream_assi
         out["reasons"].append("transcript_baseline_%s" % baseline_status)
         return out
     try:
-        path, how = find_transcript(session_id, cwd)
+        path, how = find_transcript(session_id, cwd, config_dir)
     except CliError as exc:
         out["lookup"] = "ambiguous"
         out["reasons"].append(exc.code)
@@ -1128,7 +1132,7 @@ SOFT_REASON_PREFIXES = (
 )
 
 
-def verify_round(job, stdout_path, exit_code, prior_uuids, baseline_status):
+def verify_round(job, stdout_path, exit_code, prior_uuids, baseline_status, sdk_boundary=False):
     """A round passes only when every independent signal agrees.
 
     Claude's final answer is never sufficient.  Required evidence, all of it
@@ -1147,7 +1151,7 @@ def verify_round(job, stdout_path, exit_code, prior_uuids, baseline_status):
         reasons.append("stream_parse_errors")
     if stream.get("missing_assistant_models"):
         reasons.append("assistant_model_missing")
-    if exit_code != 0:
+    if exit_code != 0 and not sdk_boundary:
         reasons.append("exit_code:%s" % exit_code)
 
     result = stream.get("result")
@@ -1178,7 +1182,7 @@ def verify_round(job, stdout_path, exit_code, prior_uuids, baseline_status):
     reasons.extend(stream.get("synthetic_markers") or [])
 
     transcript = verify_transcript(session_id, job["cwd"], prior_uuids, baseline_status,
-                                   stream.get("assistant_facts"))
+                                   stream.get("assistant_facts"), job.get("claude_config_dir"))
     reasons.extend(transcript["reasons"])
 
     return {
@@ -1188,7 +1192,9 @@ def verify_round(job, stdout_path, exit_code, prior_uuids, baseline_status):
             reason in SOFT_REASONS or reason.startswith(SOFT_REASON_PREFIXES) for reason in reasons
         ),
         "exit_code": exit_code,
+        "completion_basis": "sdk_result" if sdk_boundary else "process_exit",
         "result_event": result,
+        "usage": stream.get("usage") or {},
         "session_ok": stream.get("result_session_id") == session_id,
         "model_verified": bool(models) and all(model == MODEL for model in models),
         "assistant_models": models,
@@ -1249,6 +1255,23 @@ def new_round(job_id, index, kind, prompt_rel, prompt_sha, baseline, baseline_st
     }
 
 
+def job_environment(job, env):
+    """Preserve unset vs explicit config path: Claude uses distinct auth stores."""
+    if job.get("backend", "claude") != "claude":
+        return env
+    if "claude_config_env" in job:
+        original = job["claude_config_env"]
+        if original is None:
+            env.pop("CLAUDE_CONFIG_DIR", None)
+        else:
+            env["CLAUDE_CONFIG_DIR"] = original
+    elif job.get("claude_config_dir"):
+        from claude_quota import account_home
+        if account_home() != job["claude_config_dir"]:
+            raise CliError("account_context_changed", "restore the original Claude config environment before resuming this legacy job")
+    return env
+
+
 def launch_transaction(ctx, job, index, resume):
     """Spawn the round's worker and register its identity, still under the lock.
 
@@ -1261,6 +1284,10 @@ def launch_transaction(ctx, job, index, resume):
     """
     job_root = ctx.job_dir(job["job_id"])
     record = job["rounds"][index]
+    if job.get("transport") == "sdk":
+        from claude_sdk_backend import reuse_worker
+        if reuse_worker(ctx, job, record):
+            return record["worker"]
     run_token = record["run_token"]
     worker_log = os.path.join(ensure_dir(round_dir(job_root, index)), "worker.log")
 
@@ -1292,15 +1319,26 @@ def launch_transaction(ctx, job, index, resume):
             stdout=log_fd,
             stderr=log_fd,
             cwd=job_root,
-            env=dict(os.environ),
+            env=job_environment(job, dict(os.environ)),
             start_new_session=True,
             close_fds=True,
         )
+    except OSError as exc:
+        record.update(status="not_started", finalized=True, finished_at=iso())
+        job["phase"] = PHASE_FAILED
+        job["attention"] = {"reason": "worker_spawn_failed", "errno": exc.errno}
+        ctx.save(job)
+        raise CliError("worker_spawn_failed", "worker could not start", errno=exc.errno)
     finally:
         os.close(log_fd)
 
     record["worker"] = capture_identity(proc.pid, run_token)
+    if job.get("transport") == "sdk":
+        job["sdk_worker"] = record["worker"]
+        job["sdk_closing"] = False
     ctx.save(job)
+    # A long-lived MCP parent must reap detached workers after they exit.
+    threading.Thread(target=proc.wait, name="delegate-worker-reaper", daemon=True).start()
     return record["worker"]
 
 
@@ -1309,7 +1347,7 @@ def launch_transaction(ctx, job, index, resume):
 # --------------------------------------------------------------------------- #
 
 
-def live_blockers(job):
+def live_blockers(job, allow_idle_sdk=False):
     """Everything that must be provably gone before a new round may launch.
 
     A recorded process only clears if we have proof it exited.  A round that
@@ -1317,9 +1355,16 @@ def live_blockers(job):
     the absence of a process that may be about to invoke Claude.
     """
     blockers = []
+    idle_sdk = (allow_idle_sdk and job.get("transport") == "sdk"
+                and job.get("phase") == PHASE_AWAITING_REVIEW
+                and current_round(job)[1].get("finalized")
+                and not job.get("sdk_closing"))
     for record in job.get("rounds") or []:
         for name in ("worker", "claude"):
             state = identity_state(record.get(name))
+            if (idle_sdk and state == "alive"
+                    and record.get(name) == job.get("sdk_" + name)):
+                continue
             if state not in STATE_GONE:
                 blockers.append(
                     {
@@ -1430,7 +1475,7 @@ def backend_baseline(job):
     if job.get("backend", "claude") == "kimi":
         from kimi_backend import baseline
         return baseline(job)
-    return snapshot_assistant_baseline(job["session_id"], job["cwd"])
+    return snapshot_assistant_baseline(job["session_id"], job["cwd"], job.get("claude_config_dir"))
 
 
 def cmd_start(ctx, args):
@@ -1441,6 +1486,12 @@ def cmd_start(ctx, args):
     max_revisions = validate_max_revisions(args.max_revisions)
     allow_tools = validate_allow_rules(args.allow_tool)
     backend = args.backend
+    transport = getattr(args, "transport", "cli")
+    if transport == "sdk":
+        if backend != "claude":
+            raise CliError("wrong_backend", "SDK transport currently applies to Claude")
+        from claude_sdk_backend import preflight
+        preflight()
     if backend != "opencode" and (args.opencode_bin or args.opencode_tool):
         raise CliError("wrong_backend", "OpenCode options require --backend opencode")
     read_dirs, required_files = read_access(cwd, getattr(args, "read_dir", []), getattr(args, "require_file", []))
@@ -1506,6 +1557,7 @@ def cmd_start(ctx, args):
             "revisions_used": 0,
             "current_round": 0,
             "backend": backend,
+            "transport": transport,
             "model": "deepseek/deepseek-flash" if backend == "opencode" else ("kimi-code/k3-256k" if backend == "kimi" else MODEL),
             "effort": "high" if backend == "opencode" else EFFORT,
             **kimi_options,
@@ -1514,6 +1566,7 @@ def cmd_start(ctx, args):
             "read_dirs": read_dirs,
             "required_files": required_files,
             "claude_config_dir": account_home() if backend == "claude" else None,
+            "claude_config_env": os.environ.get("CLAUDE_CONFIG_DIR") if backend == "claude" else None,
             "stop_requested": False,
             "process_state": "starting",
             "cli_version": None,
@@ -1529,6 +1582,7 @@ def cmd_start(ctx, args):
                 )
             ],
         }
+        job["rounds"][0]["request"] = getattr(args, "request", None)
         ctx.save(job)
         # Spawn and identity registration commit inside this same lock hold.
         identity = launch_transaction(ctx, job, 0, resume=False)
@@ -1559,6 +1613,9 @@ def cmd_revise(ctx, args):
         job = ctx.load_owned(args.job)
         job, _ = reconcile(ctx, job)
         phase = job.get("phase")
+        expected = getattr(args, "expected_round", None)
+        if expected is not None and expected != job.get("current_round"):
+            raise CliError("stale_round", "job advanced; inspect the current round before revising")
 
         if phase in BUSY_PHASES:
             raise CliError("busy", "job is still running (phase=%s); wait or stop it first" % phase, phase=phase)
@@ -1576,7 +1633,7 @@ def cmd_revise(ctx, args):
 
         # --recover acknowledges an inspected, finished task; it is never
         # permission to start a second Claude beside one that may still be live.
-        blockers = live_blockers(job)
+        blockers = live_blockers(job, allow_idle_sdk=True)
         if blockers:
             raise CliError(
                 "live_process",
@@ -1600,6 +1657,9 @@ def cmd_revise(ctx, args):
         dirs = list(dict.fromkeys((job.get("read_dirs") or []) + (getattr(args, "read_dir", None) or [])))
         inputs = list(dict.fromkeys([v["path"] for v in job.get("required_files") or []] + (getattr(args, "require_file", None) or [])))
         read_dirs, required_files = read_access(job["cwd"], dirs, inputs)
+        if (job.get("transport") == "sdk" and identity_state(job.get("sdk_worker")) == "alive"
+                and read_dirs != job.get("read_dirs", [])):
+            raise CliError("sdk_scope_changed", "stop and recover the same session before changing reference directories")
         if job.get("backend", "claude") == "claude":
             quota_gate(ctx, job.get("claude_config_dir"), refresh=True)
         elif read_dirs or required_files:
@@ -1640,6 +1700,7 @@ def cmd_revise(ctx, args):
             *backend_baseline(job)
         )
         record["recovered_from"] = phase if args.recover else None
+        record["request"] = getattr(args, "request", None)
         job["rounds"].append(record)
         job["current_round"] = index
         job["revisions_used"] = used + 1
@@ -1688,6 +1749,7 @@ def status_payload(ctx, job):
         "max_revisions": job.get("max_revisions"),
         "timeout": job.get("timeout"),
         "backend": job.get("backend", "claude"),
+        "transport": job.get("transport", "cli"),
         "opencode_tools": job.get("opencode_tools"),
         "kimi_tools": job.get("kimi_tools"),
         "kimi_hooks": job.get("kimi_hooks"),
@@ -1698,6 +1760,7 @@ def status_payload(ctx, job):
             "effort": bool(verification.get("effort_verified")),
             "session": bool(verification.get("session_ok")),
             "exit_code": verification.get("exit_code"),
+            "completion_basis": verification.get("completion_basis", "process_exit"),
             "actual_models": verification.get("assistant_models") or [],
             "actual_efforts": verification.get("efforts") or [],
             "new_assistant_entries": verification.get("new_assistant_entries"),
@@ -2013,9 +2076,15 @@ def cmd_revalidate(ctx, args):
 
 def cmd_accept(ctx, args):
     notes = validate_input_file(args.notes_file, "--notes-file", NOTES_MAX_BYTES)
+    if ctx.load_owned(args.job).get("transport") == "sdk":
+        from claude_sdk_backend import close_idle
+        close_idle(ctx, args.job, getattr(args, "expected_round", None))
 
     with StateLock(ctx.state_dir):
         job = ctx.load_owned(args.job)
+        expected = getattr(args, "expected_round", None)
+        if expected is not None and expected != job.get("current_round"):
+            raise CliError("stale_round", "review refers to an older round")
         job, _ = reconcile(ctx, job)
         if job.get("phase") == PHASE_ACCEPTED:
             raise CliError("already_accepted", "job is already accepted")
@@ -2175,6 +2244,9 @@ def finalize_worker_failure(ctx, args, job_id, index, reasons):
 
 
 def worker_run(ctx, args, job_id, index, job_root, log):
+    if ctx.load(job_id).get("transport") == "sdk":
+        from claude_sdk_backend import run_worker
+        return run_worker(ctx, args, log)
     token = args.run_token
     wlog(log, "worker_boot", job=job_id, round=index, pid=os.getpid())
 
@@ -2229,7 +2301,7 @@ def worker_run(ctx, args, job_id, index, job_root, log):
         monitor = Monitor(round_dir(job_root, index), job["session_id"],
                           record["started_epoch"], write_json,
                           quota_observer=Observer(ctx.state_dir, job.get("claude_config_dir") or account_home(), job["session_id"]))
-        env = child_env()
+        env = job_environment(job, child_env())
 
     wlog(
         log,
@@ -2277,11 +2349,16 @@ def worker_run(ctx, args, job_id, index, job_root, log):
                     return {"ok": False, "error": exc.code, "job_id": job_id, "round": index}
             stored_record["claude_launch_pending"] = True
             ctx.save(stored)
-            proc = subprocess.Popen(
-                argv, stdin=prompt_in, stdout=out, stderr=err,
-                cwd=job["cwd"], env=env,
-                start_new_session=True, close_fds=True,
-            )
+            try:
+                proc = subprocess.Popen(
+                    argv, stdin=prompt_in, stdout=out, stderr=err,
+                    cwd=job["cwd"], env=env,
+                    start_new_session=True, close_fds=True,
+                )
+            except OSError:
+                stored_record["claude_launch_pending"] = False
+                ctx.save(stored)
+                raise
             claude_identity = (opencode_backend.capture_identity(proc.pid, token, job["opencode_bin"]) if is_opencode else
                                (kimi_backend.capture_identity(proc.pid, token, job["kimi_bin"])
                                if is_kimi else capture_identity(proc.pid, token)))
@@ -2390,6 +2467,7 @@ def build_parser():
 
     start = sub.add_parser("start", help="start a new delegated job")
     start.add_argument("--backend", choices=("claude", "kimi", "opencode"), default="claude")
+    start.add_argument("--transport", choices=("cli", "sdk"), default="cli", help="Claude transport; MCP uses sdk")
     start.add_argument("--opencode-bin", default=None, help="OpenCode executable")
     start.add_argument("--opencode-tool", action="append", default=[], choices=("read", "glob", "grep", "edit", "bash"))
     start.add_argument("--kimi-bin", default=None, help="Kimi executable (default: which('kimi'))")

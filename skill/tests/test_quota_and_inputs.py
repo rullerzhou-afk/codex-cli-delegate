@@ -74,6 +74,24 @@ class Quota(unittest.TestCase):
         e=dict(type='rate_limit_event',session_id='s',rate_limit_info=dict(status='allowed',rateLimitType='five_hour',utilization=.1,resetsAt=20000))
         self.put(e,at=10002)
         self.assertEqual(q.status(self.root,self.home,10003)['blocking_windows'],['seven_day'])
+    def test_import_reads_latest_observation_of_every_window(self):
+        job_root=self.root/'jobs'/'fixture';job_root.mkdir(parents=True)
+        job_root.joinpath('job.json').write_text(json.dumps(dict(session_id='s', claude_config_dir=self.home,
+            rounds=[dict(evidence=dict(stdout='stream.ndjson'))])))
+        old=event(five=.95, week=.92, reset=4000000000)
+        recent=dict(type='rate_limit_event',session_id='s',rate_limit_info=dict(status='allowed',
+            rateLimitType='five_hour',utilization=.2,resetsAt=4000000000))
+        job_root.joinpath('stream.ndjson').write_text(json.dumps(old)+'\n'+json.dumps(recent)+'\n')
+        imported=q.refresh_from_jobs(str(self.root),self.home)
+        self.assertEqual(imported['blocking_windows'],['seven_day'])
+        self.assertEqual(imported['windows']['five_hour']['used_percent'],20)
+
+    def test_config_environment_preserves_auth_lookup_semantics(self):
+        default=ct.job_environment(dict(claude_config_env=None),{'CLAUDE_CONFIG_DIR':'/wrong','OTHER':'kept'})
+        self.assertNotIn('CLAUDE_CONFIG_DIR',default)
+        self.assertEqual(default['OTHER'],'kept')
+        explicit=ct.job_environment(dict(claude_config_env=self.home),{})
+        self.assertEqual(explicit['CLAUDE_CONFIG_DIR'],self.home)
 
 class InputsAndRevisions(unittest.TestCase):
     def setUp(self):

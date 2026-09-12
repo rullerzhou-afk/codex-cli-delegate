@@ -87,8 +87,13 @@ def round_sources(job, round_index, source_root):
     if type(round_index) is not int or not 0 <= round_index < len(job.get('rounds', [])):
         raise EvidenceError('Requested round does not exist')
     record = job['rounds'][round_index]
-    if record.get('finalized') is not True or type(record.get('exit_code')) is not int:
-        raise EvidenceError('Export requires a finalized round with an observed process exit')
+    verification = record.get('verification') or {}
+    sdk_result = (job.get('backend', 'claude') == 'claude' and job.get('transport') == 'sdk'
+                  and verification.get('completion_basis') == 'sdk_result'
+                  and isinstance(verification.get('result_event'), dict)
+                  and verification.get('session_ok') is True)
+    if record.get('finalized') is not True or (type(record.get('exit_code')) is not int and not sdk_result):
+        raise EvidenceError('Export requires a finalized round with an observed process exit or SDK result')
     prompt = read_bounded(inside(source_root, record['prompt']))
     if digest(prompt) != record.get('prompt_sha256'):
         raise EvidenceError('Saved task prompt no longer matches its digest')
@@ -97,10 +102,19 @@ def round_sources(job, round_index, source_root):
     sealed = (record.get('evidence_sha256') or {}).get('stdout')
     if sealed is not None and sealed != digest(data):
         raise EvidenceError('Source stream changed after round finalization')
+    if sdk_result:
+        if sealed is None:
+            raise EvidenceError('SDK export requires the original round finalization seal')
+        try:
+            results = [row for line in data.splitlines() if (row := json.loads(line)).get('type') == 'result']
+        except (ValueError, AttributeError):
+            raise EvidenceError('Invalid SDK source stream')
+        if (len(results) != 1 or results[0].get('session_id') != job.get('session_id')
+                or any(results[0].get(k) != v for k, v in verification['result_event'].items())):
+            raise EvidenceError('SDK result does not match the finalized source stream')
     backend = job.get('backend', 'claude')
     if backend not in ('claude', 'kimi', 'opencode'):
         raise EvidenceError('Unsupported backend')
-    verification = record.get('verification') or {}
     session = verification.get('native_session_id') or job.get('session_id')
     metadata = dict(job_id=job['job_id'], owner=job['owner'], backend=backend,
                     session_id=session, round=round_index, run_token=record['run_token'], cwd=job['cwd'],
@@ -109,6 +123,8 @@ def round_sources(job, round_index, source_root):
                     exit_code=record['exit_code'], prompt_sha256=digest(prompt),
                     source_stream=dict(path=str(source), sha256=digest(data), bytes=len(data),
                                        integrity_anchor='round_finalization' if sealed else 'export_time_only'))
+    if job.get('transport') == 'sdk':
+        metadata.update(transport='sdk', completion_basis=verification.get('completion_basis'))
     files, sources = {'prompt.md': prompt}, []
     for index, response in enumerate(visible_responses(data, backend, session), 1):
         filename = 'response-%04d.md' % index
