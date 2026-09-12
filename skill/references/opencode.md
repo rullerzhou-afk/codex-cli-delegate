@@ -1,6 +1,6 @@
 # DeepSeek：通过 OpenCode CLI 委派 DeepSeek
 
-使用 `scripts/delegate.py start --backend opencode --cwd <实际目录> --prompt-file <任务书>`。当前已验证 OpenCode **1.18.30**、`deepseek/deepseek-flash`、variant `high`，这是本次验证的固定配置。复用本机登录，不能自动切回默认模型或其他供应商。客户端版本变化时先检查 hooks 与原生记录格式；调用器在未核对版本前拒绝新派单。
+使用 `scripts/delegate.py start --backend opencode --cwd <实际目录> --prompt-file <任务书>`。当前已验证 OpenCode **1.18.30**、`deepseek/deepseek-flash`、variant `high`，这是本次验证的固定配置。复用本机登录，不能自动切回默认模型或其他供应商。1.18.30 是历史实测参考版本，不是版本白名单。启动前检查实际版本和 `run --help` 的所需参数；版本号变化本身不阻止派单。运行后继续核对 hooks、原生数据库和模型等证据。参数预检通过不代表所有行为已经验证。每轮记录启动前观察到的实际版本。
 
 ## 工具与权限
 
@@ -25,3 +25,5 @@
 ## V4.1 Flash model name
 
 The official API name is `deepseek-flash`. The older `deepseek-v4-flash` alias is temporarily routed to V4.1 Flash; new jobs use the official alias. Existing jobs keep their recorded model. Source: https://deepseek.com/news/deepseek-v4-1-flash/
+
+旧 MCP 连接若仍返回 `opencode_version` 的精确版本错误，检查原 job 后使用已更新 CLI 的同等入口；不能要求用户降级或重复派发已有工作。刷新连接后加载能力检查。

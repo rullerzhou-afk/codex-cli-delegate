@@ -1,6 +1,7 @@
 """OpenCode CLI adapter. Hooks are hints; native session records prove completion."""
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -12,6 +13,15 @@ from kimi_backend import capture_identity, error
 MODEL = 'deepseek/deepseek-flash'
 EFFORT = 'high'
 TOOLS = ('read', 'glob', 'grep', 'edit', 'bash')
+REFERENCE_VERSION = '1.18.30'
+REQUIRED_FLAGS = ('agent', 'dir', 'title', 'format', 'model', 'variant', 'session')
+
+
+def probe(binary, *args):
+    try:
+        return subprocess.check_output([str(binary), *args], text=True, stderr=subprocess.STDOUT, timeout=10).strip()
+    except (OSError, subprocess.SubprocessError) as exc:
+        error('opencode_probe', 'OpenCode ' + ' '.join(args) + ' probe failed (' + type(exc).__name__ + ')')
 
 
 def prepare(explicit, tools, rules):
@@ -28,12 +38,20 @@ def prepare(explicit, tools, rules):
     if binary.suffix in ('.js', '.exe') or binary.name == 'opencode':
         native = binary.parent.parent / 'node_modules/opencode-darwin-arm64/bin/opencode'
         if native.is_file(): binary = native
-    version = subprocess.check_output([str(binary), '--version'], text=True).strip()
-    if version != '1.18.30':
-        error('opencode_version', 'Adapter verified against 1.18.30; inspect hooks/schema before accepting another version')
+    version = probe(binary, '--version')
+    if not version:
+        error('opencode_probe', 'OpenCode returned an empty version; could not record the executing CLI')
+    help_text = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', probe(binary, 'run', '--help'))
+    flags = set(re.findall(r'(?<![\w-])--([a-z][a-z0-9-]*)\b', help_text))
+    missing = sorted(set(REQUIRED_FLAGS) - flags)
+    if missing:
+        error('opencode_incompatible', 'OpenCode run is missing required options: ' + ', '.join('--' + f for f in missing))
     data = Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share')))
     return dict(opencode_bin=str(binary), opencode_db=str(data/'opencode/opencode.db'),
-                opencode_tools=sorted(set(tools or ('read','glob','grep'))), opencode_version=version)
+                opencode_tools=sorted(set(tools or ('read','glob','grep'))), opencode_version=version,
+                opencode_compatibility=dict(cli_options='checked', reference_version=REFERENCE_VERSION,
+                                            matches_reference=version == REFERENCE_VERSION,
+                                            native_evidence='pending_runtime_verification'))
 
 
 def connection(job):
@@ -50,7 +68,10 @@ def baseline(job):
 def setup(job, record, resume, prompt_file, directory):
     from claude_task import atomic_write_bytes
     directory = Path(directory)
-    prepare(job['opencode_bin'], job['opencode_tools'], [])
+    actual = prepare(job['opencode_bin'], job['opencode_tools'], [])
+    job['opencode_version'] = actual['opencode_version']
+    job['opencode_compatibility'] = actual['opencode_compatibility']
+    record['opencode_version'] = actual['opencode_version']
     marker = '[codex-delegate:'+record['run_token']+']'
     prompt = directory/'opencode-prompt.txt'
     atomic_write_bytes(str(prompt), (marker+'\n'+Path(prompt_file).read_text()).encode())

@@ -34,16 +34,18 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 - 本机委派以 macOS 为已验证平台。将文件复制到 Windows 不等于 Windows 本机可运行；Mac 观察远程 Windows Codex 是另一项能力。
 - 默认配置：Claude `claude-opus-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名）。模型与校验逻辑一起固定，当前没有任意模型选择功能。
-- OpenCode 当前验证 CLI 1.18.30；其他版本会被拒绝，需要先核对协议与 hooks。Kimi 要求已有思考配置；具体见 [后端参考](skill/references/kimi.md)。
+- OpenCode 以 CLI 1.18.30 为历史实测参考，已取消精确版本白名单；启动前检查所需参数，运行后核验原生记录，版本号变化本身不拦截。Kimi 要求已有思考配置；具体见 [后端参考](skill/references/kimi.md)。
 - 默认只读的后端只有明确授权后才加入编辑或 Bash。工具选择不是 OS 沙箱；Kimi/OpenCode 的 Bash 允许整个工具，不能冒充 Claude 的命令级规则。
 - idle 或完成 hook 不代表通过验收。SDK 在本轮原生 result 到达后检查会话、本轮、模型和正式输出，旧 CLI 则在进程退出后核验，再由 Codex 检查实际文件与测试。
 - 默认不限返工次数，保留超时和异常检查。Claude 任一可靠额度窗口达到 90% 后暂停后续派单，当前轮继续完成；数据未知时不显示为零，也不保证账户永不越线。DeepSeek/Kimi 额度尚未接入。
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - Pi、ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-本次 MCP/SDK 更新通过 164 项 Python 测试和 11 项 JavaScript 测试，包含真实 MCP 协议连接及由模拟 CLI 驱动的固定版本 SDK。进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功；本次在允许读取后复验通过。
+此前完整套件通过 164 项 Python 测试和 11 项 JavaScript 测试，包含真实 MCP 协议连接及由模拟 CLI 驱动的固定版本 SDK。进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功；本次在允许读取后复验通过。
 
 本地测试方法见 [英文 README](README.md#tests)，不调用付费模型。另有 macOS 真实三轮 SDK 验证：同进程返工、重启后恢复原会话、上下文保留、文件输出、Stop hooks 和缓存读取均有实际记录；不由此推算订阅额度节省比例。真实 API 故障、其他 CLI 版本和 Linux/Windows 本机 MCP/SDK 执行不能用本地自动化测试结果代替。详细边界见 [MCP 验证说明](skill/references/mcp.md#validation-and-maintenance)。
+
+本次版本兼容更新新增 5 项针对性测试；23 项 OpenCode、15 项 CLI 和 11 项 JavaScript 检查通过。本机 1.18.30 的实际参数探测通过，其他版本号与不兼容记录使用模拟数据验证，没有把它当成真实升级后模型运行的证明。
 
 ## 来源与许可证
 

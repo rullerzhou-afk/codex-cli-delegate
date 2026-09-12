@@ -25,11 +25,11 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 | --- | --- |
 | Local Claude SDK / Kimi CLI / OpenCode CLI delegation | Validated on macOS; not a supported Windows local runner |
 | Remote Codex observation | macOS observer → existing Windows SSH host with Node.js and PowerShell |
-| OpenCode profile | CLI 1.18.30; `deepseek/deepseek-flash`, variant `high` |
+| OpenCode profile | Reference CLI 1.18.30; capability-checked versions; `deepseek/deepseek-flash`, variant `high` |
 | Claude profile | `claude-opus-5`, effort `max`; restricted settings require CLI 2.1.248+ |
 | Kimi profile | `kimi-code/k3-256k`, effort `max`; existing thinking settings and managed hooks required |
 
-Profiles are fixed and verified by the adapters. This release does not expose arbitrary model selection. New CLI versions may need adapter changes; OpenCode explicitly rejects versions other than the verified one.
+Profiles are fixed and verified by the adapters. This release does not expose arbitrary model selection. OpenCode records the actual version and checks required CLI options before starting; a different version alone does not block execution. Native session, model, effort, and completion verification remain mandatory after each round. Passing the option check is not proof that every behavior of a new release is compatible.
 
 DeepSeek V4.1 Flash uses the official API name `deepseek-flash`. The provider currently routes its older V4 Flash alias to V4.1 temporarily. [Official announcement](https://deepseek.com/news/deepseek-v4-1-flash/).
 
@@ -119,9 +119,11 @@ export PYTHONDONTWRITEBYTECODE=1
 node --test skill/tests/test_remote_codex.cjs skill/tests/test_opencode_hook.mjs
 ```
 
-The MCP/SDK update passed 164 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
+The previous complete suite passed 164 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
 
 This project is derived from an implementation exercised with real macOS read/write, same-session revision, and hook tests. A separate three-round macOS SDK smoke verified same-process continuation, same-session recovery after restart, context retention, Stop events, and cache reads. See [validation boundaries](skill/references/mcp.md#validation-and-maintenance). Those runs are not portable proof of other machines or later CLI versions. Linux/Windows local MCP/SDK execution and deliberately induced provider outages have not been validated. Detailed backend references currently include Chinese operating notes.
+
+The version compatibility update added five targeted tests. Its 23 OpenCode tests, 15 CLI contract tests, and 11 JavaScript checks passed. The installed 1.18.30 executable also passed the real option probe; other version strings and changed record structures were tested with fixtures, not real upgraded provider runs.
 
 ## Origins and license
 

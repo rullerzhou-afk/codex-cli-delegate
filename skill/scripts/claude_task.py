@@ -2360,6 +2360,10 @@ def worker_run(ctx, args, job_id, index, job_root, log):
                     stored["attention"] = dict(reason=exc.code, detail=exc.message, at=iso())
                     ctx.save(stored)
                     return {"ok": False, "error": exc.code, "job_id": job_id, "round": index}
+            if is_opencode:
+                stored["opencode_version"] = job["opencode_version"]
+                stored["opencode_compatibility"] = job["opencode_compatibility"]
+                stored_record["opencode_version"] = job["opencode_version"]
             stored_record["claude_launch_pending"] = True
             ctx.save(stored)
             try:
