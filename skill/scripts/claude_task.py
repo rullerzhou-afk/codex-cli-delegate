@@ -64,7 +64,7 @@ CHILD_ENV_OVERRIDES = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
 }
 
-DEFAULT_TIMEOUT = 1800
+DEFAULT_TIMEOUT = None  # No wall-clock kill unless a duration is explicitly chosen.
 MIN_TIMEOUT = 1  # tiny values are only useful for tests; otherwise user error
 MAX_TIMEOUT = 86400
 DEFAULT_MAX_REVISIONS = None  # None is unlimited; 0 still means no corrections.
@@ -487,6 +487,10 @@ def validate_input_file(path, what, max_bytes):
 
 
 def validate_timeout(value):
+    if value is None or value == "unlimited":
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise CliError("bad_timeout", "--timeout must be unlimited or an integer number of seconds")
     try:
         value = int(value)
     except (TypeError, ValueError):
@@ -1582,6 +1586,7 @@ def cmd_start(ctx, args):
                 )
             ],
         }
+        job["rounds"][0]["timeout"] = timeout
         job["rounds"][0]["request"] = getattr(args, "request", None)
         ctx.save(job)
         # Spawn and identity registration commit inside this same lock hold.
@@ -1608,6 +1613,9 @@ def cmd_start(ctx, args):
 
 def cmd_revise(ctx, args):
     prompt = validate_input_file(args.prompt_file, "--prompt-file", PROMPT_MAX_BYTES)
+    requested_timeout = getattr(args, "timeout", "inherit")
+    if requested_timeout != "inherit":
+        requested_timeout = validate_timeout(requested_timeout)
 
     with StateLock(ctx.state_dir):
         job = ctx.load_owned(args.job)
@@ -1699,6 +1707,11 @@ def cmd_revise(ctx, args):
             # round's work; an untrustworthy baseline is carried, not hidden.
             *backend_baseline(job)
         )
+        # Retain the prior round's policy before changing this job's default.
+        current_round(job)[1].setdefault("timeout", job.get("timeout"))
+        if requested_timeout != "inherit":
+            job["timeout"] = requested_timeout
+        record["timeout"] = job.get("timeout")
         record["recovered_from"] = phase if args.recover else None
         record["request"] = getattr(args, "request", None)
         job["rounds"].append(record)
@@ -2276,7 +2289,7 @@ def worker_run(ctx, args, job_id, index, job_root, log):
     prompt_file = os.path.join(job_root, record["prompt"])
     stdout_path = os.path.join(job_root, record["evidence"]["stdout"])
     stderr_path = os.path.join(job_root, record["evidence"]["stderr"])
-    timeout = int(job.get("timeout", DEFAULT_TIMEOUT))
+    timeout = validate_timeout(job.get("timeout", DEFAULT_TIMEOUT))
     is_kimi = job.get("backend", "claude") == "kimi"
     is_opencode = job.get("backend") == "opencode"
     if is_opencode:
@@ -2370,13 +2383,13 @@ def worker_run(ctx, args, job_id, index, job_root, log):
     # No lock is held across the run itself.
     timed_out = False
     try:
-        deadline = time.monotonic() + timeout
+        deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             try:
-                exit_code = proc.wait(timeout=min(0.4, max(0.01, deadline - time.monotonic())))
+                exit_code = proc.wait(timeout=0.4 if deadline is None else min(0.4, max(0.01, deadline - time.monotonic())))
                 break
             except subprocess.TimeoutExpired:
-                if time.monotonic() >= deadline:
+                if deadline is not None and time.monotonic() >= deadline:
                     raise
                 monitor.tick()
     except subprocess.TimeoutExpired:
@@ -2478,12 +2491,13 @@ def build_parser():
     start.add_argument("--allow-tool", action="append", default=[], help="extra narrow permission rule, repeatable")
     start.add_argument("--read-dir", action="append", default=[], help="additional authorized reference directory, repeatable")
     start.add_argument("--require-file", action="append", default=[], help="required input file to check before launch, repeatable")
-    start.add_argument("--timeout", default=DEFAULT_TIMEOUT, help="per-round timeout in seconds (default 1800)")
+    start.add_argument("--timeout", default=DEFAULT_TIMEOUT, help="explicit per-round seconds or unlimited (default: unlimited)")
     start.add_argument("--max-revisions", default=DEFAULT_MAX_REVISIONS, help="correction calls beyond the first; default unlimited")
 
     revise = sub.add_parser("revise", help="send a correction into the same saved Claude session")
     revise.add_argument("job")
     revise.add_argument("--prompt-file", required=True)
+    revise.add_argument("--timeout", default="inherit", help="keep existing limit unless set to seconds or unlimited")
     revise.add_argument("--recover", action="store_true", help="required for interrupted/failed/stopped jobs")
     revise.add_argument("--max-revisions", default=None, help="change this job's cap, including unlimited for legacy jobs")
     revise.add_argument("--read-dir", action="append", default=[], help="add an authorized reference directory")

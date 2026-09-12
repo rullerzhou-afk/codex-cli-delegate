@@ -110,6 +110,35 @@ class SDKLifecycle(unittest.TestCase):
         self.assertNotEqual(calls[0]["pid"], calls[1]["pid"])
         self.assertEqual(calls[1]["resume"], first["session_id"])
 
+    def test_default_has_no_deadline_and_old_round_limit_can_be_removed(self):
+        first = self.service.start(self.owner, "unlimited", str(self.cwd), json.dumps({"tag": "default"}))
+        self.assertIsNone(first["timeout"])
+        job = first["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        pid = self.service.context(self.owner).load_owned(job)["sdk_worker"]["pid"]
+        self.service.revise(self.owner, "limited", job, 0, json.dumps({"tag": "limited"}), timeout=1)
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        self.service.revise(self.owner, "remove-limit", job, 1, json.dumps({"tag": "longer", "delay": 2}), timeout=None)
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        saved = self.service.context(self.owner).load_owned(job)
+        self.assertEqual(saved["sdk_worker"]["pid"], pid)
+        self.assertEqual([r["timeout"] for r in saved["rounds"]], [None, 1, None])
+        replay = self.service.revise(self.owner, "remove-limit", job, 1,
+                                     json.dumps({"tag": "longer", "delay": 2}), timeout=None)
+        self.assertTrue(replay["replayed"])
+
+    def test_recover_timed_out_job_without_its_old_limit(self):
+        first = self.service.start(self.owner, "short", str(self.cwd), json.dumps({"delay": 5}), timeout=1)
+        job = first["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "needs_attention")
+        self.service.stop(self.owner, job)
+        self.service.revise(self.owner, "recover-unlimited", job, 0,
+                            json.dumps({"tag": "recovered", "delay": 2}), recover=True, timeout=None)
+        result = self.settle(job)
+        self.assertEqual(result["phase"], "awaiting_review", result)
+        self.assertEqual(result["session_id"], first["session_id"])
+        self.assertIsNone(result["timeout"])
+
     def test_round_timeout_keeps_evidence_and_stops_child(self):
         first = self.service.start(self.owner, "timeout", str(self.cwd), json.dumps({"delay": 10}), timeout=1)
         result = self.settle(first["job_id"])
@@ -221,6 +250,8 @@ class MCPProtocol(unittest.IsolatedAsyncioTestCase):
                     await client.initialize()
                     tools = await client.list_tools()
                     self.assertEqual(len(tools.tools), 8)
+                    start_tool = next(t for t in tools.tools if t.name == "delegate_start")
+                    self.assertIsNone(start_tool.input_schema["properties"]["timeout"].get("default"))
                     notification = await client.call_tool("delegate_notify", {
                         "owner": "protocol-fixture", "job_id": "not-a-job", "expected_round": 0})
                     self.assertTrue(notification.is_error)

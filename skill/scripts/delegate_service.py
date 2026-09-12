@@ -28,7 +28,7 @@ class DelegateService:
         root = Path(ctx.job_dir(job["job_id"]))
         data = dict(job_id=job["job_id"], backend=job.get("backend", "claude"),
                     phase=job["phase"], round=index, session_id=job.get("session_id"),
-                    transport=job.get("transport", "cli"), replayed=replay)
+                    transport=job.get("transport", "cli"), timeout=job.get("timeout"), replayed=replay)
         if v:
             data["verified"] = {k: v.get(k) for k in
                                 ("ok", "model_verified", "effort_verified", "session_ok", "completion_basis", "reasons")}
@@ -102,7 +102,7 @@ class DelegateService:
             return self.read(owner, result["job_id"])
 
     def start(self, owner, request_id, cwd, task, backend="claude", allow_tools=None,
-              read_dirs=None, required_files=None, timeout=1800, max_revisions=None,
+              read_dirs=None, required_files=None, timeout=None, max_revisions=None,
               kimi_tools=None, opencode_tools=None):
         if backend not in ("claude", "kimi", "opencode"):
             raise ct.CliError("unsupported_backend", "supported agents: claude, kimi, opencode; Pi is not implemented")
@@ -125,15 +125,19 @@ class DelegateService:
 
         return self.dispatch(owner, request_id, "start", spec, launch)
 
-    def revise(self, owner, request_id, job_id, expected_round, task, recover=False):
+    def revise(self, owner, request_id, job_id, expected_round, task, recover=False, timeout="inherit"):
         if not isinstance(task, str) or not task.strip() or len(task.encode()) > ct.PROMPT_MAX_BYTES:
             raise ct.CliError("bad_task", "provide a nonempty bounded correction")
         spec = dict(job_id=job_id, expected_round=expected_round, task=task, recover=recover)
+        # Preserve old request digests when no policy change was requested.
+        if timeout != "inherit":
+            timeout = ct.validate_timeout(timeout)
+            spec["timeout"] = timeout
 
         def launch(ctx, request, prompt):
             ct.atomic_write_bytes(str(prompt), task.encode())
             return ct.cmd_revise(ctx, SimpleNamespace(job=job_id, prompt_file=str(prompt), recover=recover,
-                                                      expected_round=expected_round, request=request))
+                                                      expected_round=expected_round, request=request, timeout=timeout))
 
         return self.dispatch(owner, request_id, "revise", spec, launch)
 

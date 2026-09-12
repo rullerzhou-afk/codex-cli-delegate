@@ -151,6 +151,20 @@ class Contract(unittest.TestCase):
         self.assertTrue(result['wait_capped'])
         self.assertLess(result['waited_seconds'], 5)
 
+    def test_default_unlimited_and_revision_removes_prior_limit(self):
+        cwd = self.root / 'unlimited'
+        cwd.mkdir()
+        first = self.call('start', '--cwd', str(cwd), '--prompt-file', self.prompt())
+        job = first['job_id']
+        self.assertIsNone(first['timeout'])
+        self.assertEqual(self.settled(job)['phase'], 'awaiting_review')
+        self.call('revise', job, '--prompt-file', self.prompt(), '--timeout', '1')
+        self.assertEqual(self.settled(job)['phase'], 'awaiting_review')
+        self.call('revise', job, '--prompt-file', self.prompt(delay=2), '--timeout', 'unlimited')
+        self.assertEqual(self.settled(job)['phase'], 'awaiting_review')
+        saved = json.loads((self.state / 'jobs' / job / 'job.json').read_text())
+        self.assertEqual([r['timeout'] for r in saved['rounds']], [None, 1, None])
+
     def test_stop_and_timeout(self):
         a = self.start(tag='will-stop', delay=10)
         stopped = self.call('stop', a['job_id'])

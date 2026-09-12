@@ -23,7 +23,7 @@ The script needs only Python 3.9+ standard libraries. It uses the shared default
 - Verified completion: ready for independent review, not already accepted.
 - Failed, interrupted, or unverified completion: inspect the original evidence.
 - An existing monitor quota-pause event, or a 15-minute checkpoint reporting no observed progress: notify once per category while work continues. No observed progress does not prove failure.
-- The watcher reaches the round's timeout plus 120 seconds without observing a terminal state: notify that monitoring ended; the job may still be running.
+- For an explicitly limited round, the watcher reaching its timeout plus 120 seconds without a terminal state triggers a monitoring-ended reminder. With the default unlimited runtime it continues until a terminal state, disable, or a superseding round.
 
 Normal progress, recoverable tool errors, and Stop/idle hooks alone do not announce completion. Accepted or explicitly stopped work stays quiet. Backend-specific reminders depend on events already supported by that backend's monitor. Immediate notification of every possible permission wait is not guaranteed.
 

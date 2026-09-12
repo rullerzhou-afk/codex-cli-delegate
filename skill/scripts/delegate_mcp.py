@@ -35,17 +35,17 @@ def build_server(service):
     @expose()
     async def delegate_start(owner: str, request_id: str, cwd: str, task: str, backend: str = "claude",
                              allow_tools: list[str] | None = None, read_dirs: list[str] | None = None,
-                             required_files: list[str] | None = None, timeout: int = 1800,
+                             required_files: list[str] | None = None, timeout: int | None = None,
                              kimi_tools: list[str] | None = None, opencode_tools: list[str] | None = None) -> dict:
-        """Start authorized work. Include scope and acceptance in task. Reuse request_id when retrying an uncertain call. Claude uses Agent SDK; Kimi/OpenCode retain native adapters."""
+        """Start authorized work. Include scope and acceptance in task. Reuse request_id when retrying an uncertain call. Claude uses Agent SDK; Kimi/OpenCode retain native adapters. timeout=null means no wall-clock kill (default); only set seconds for an explicit limit."""
         return await asyncio.to_thread(service.start, owner, request_id, cwd, task, backend, allow_tools,
                                        read_dirs, required_files, timeout, None, kimi_tools, opencode_tools)
 
     @expose()
     async def delegate_revise(owner: str, request_id: str, job_id: str, expected_round: int,
-                              task: str, recover: bool = False) -> dict:
-        """Continue the same native session after review. recover acknowledges inspected failure/interruption; it never authorizes duplicate active work."""
-        return await asyncio.to_thread(service.revise, owner, request_id, job_id, expected_round, task, recover)
+                              task: str, recover: bool = False, timeout: int | str | None = "inherit") -> dict:
+        """Continue the same native session after review. recover acknowledges inspected failure/interruption; it never authorizes duplicate active work. timeout defaults to inherit; null removes an old limit, integer sets seconds."""
+        return await asyncio.to_thread(service.revise, owner, request_id, job_id, expected_round, task, recover, timeout)
 
     @expose(True)
     async def delegate_status(owner: str, job_id: str, details: bool = False) -> dict:

@@ -68,3 +68,11 @@ A separate macOS run on 2026-09-12 used Claude Code 2.1.261 and `claude-opus-5/m
 Dependencies are pinned to `claude-agent-sdk==0.2.152` and `mcp==2.2.0`. The adapter subclasses one internal SDK subprocess transport to retain raw events and actual process identity. Upgrading requires rechecking protocol behavior, hooks, evidence correspondence, and process cleanup. Kimi/OpenCode retain their CLI adapters; Pi, ACP, and OpenCode Server are not implemented.
 
 For opt-in background completion reminders, see [notifications](notifications.md). The detached watcher makes no model calls and survives MCP disconnection; arm it again after each revision.
+
+## Runtime limits versus wait limits
+
+New jobs default to `timeout=null`: no wall-clock termination. Only set a positive number of seconds when the user explicitly asks for a runtime limit (the current explicit range remains 1..86400). The 600/1800-second `delegate_wait` bounds and client tool timeout limit one wait request, not the detached task.
+
+Existing jobs keep saved numeric limits. `delegate_revise` defaults to `timeout="inherit"`; `timeout=null` removes the old limit for subsequent rounds while preserving the native session. Each round retains its timeout history. For CLI recovery use `revise --recover --timeout unlimited`.
+
+An already loaded MCP may still have the old `timeout=1800` schema and in-memory defaults. Inspect the returned/saved timeout. Until the connection loads the new entry point, use the installed CLI with `start --transport sdk --timeout unlimited` or `revise --recover --timeout unlimited`. Updating files does not alter timers in already running old workers.

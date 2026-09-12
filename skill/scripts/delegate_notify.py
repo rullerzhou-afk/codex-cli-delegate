@@ -198,12 +198,13 @@ def watch(ctx, job_id, index, generation):
             return
         data['state'] = 'watching'
         ct.write_json(str(path), data)
-        deadline = time.monotonic() + ct.validate_timeout(job['timeout']) + 120
+        timeout = ct.validate_timeout(job.get('timeout'))
+        deadline = None if timeout is None else time.monotonic() + timeout + 120
     last_reconcile = -float('inf')
     while True:
         now = time.monotonic()
         reconcile = now - last_reconcile >= 5
-        if tick(ctx, job_id, index, generation, expired=now >= deadline, reconcile=reconcile):
+        if tick(ctx, job_id, index, generation, expired=deadline is not None and now >= deadline, reconcile=reconcile):
             return
         if reconcile:
             last_reconcile = now

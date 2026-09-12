@@ -157,6 +157,33 @@ class Notifications(unittest.TestCase):
         self.assertFalse(dn.read(self.path)['enabled'])
         self.assertEqual(dn.read(self.path)['state'], 'disabled')
 
+    def test_unlimited_watcher_survives_old_wall_clock_cutoff(self):
+        self.job['timeout'] = None
+        self.ctx.save(self.job)
+        data = dn.read(self.path)
+        data['worker'] = {'pid': os.getpid()}
+        ct.write_json(str(self.path), data)
+        with patch.object(dn.time, 'monotonic', side_effect=[0, 2000, 1000000]), \
+                patch.object(dn.time, 'sleep'), patch.object(dn, 'tick', side_effect=[False, True]) as tick:
+            dn.watch(self.ctx, self.job['job_id'], 0, 'generation')
+        self.assertEqual([c.kwargs['expired'] for c in tick.call_args_list], [False, False])
+
+    def test_explicit_watcher_limit_is_still_honored(self):
+        data = dn.read(self.path)
+        data['worker'] = {'pid': os.getpid()}
+        ct.write_json(str(self.path), data)
+        with patch.object(dn.time, 'monotonic', side_effect=[0, 141]), \
+                patch.object(dn, 'tick', return_value=True) as tick:
+            dn.watch(self.ctx, self.job['job_id'], 0, 'generation')
+        self.assertTrue(tick.call_args.kwargs['expired'])
+
+    def test_timeout_policy_validation(self):
+        for value in (None, 'unlimited'):
+            self.assertIsNone(ct.validate_timeout(value))
+        self.assertEqual(ct.validate_timeout('1800'), 1800)
+        for value in (True, False, 1.5, 0, -1, 'garbage'):
+            with self.assertRaises(ct.CliError): ct.validate_timeout(value)
+
     def test_timeout_not_reported_as_job_failure(self):
         self.assertTrue(self.tick(expired=True))
         self.assertIn('监控已到时', self.sent[0][0])

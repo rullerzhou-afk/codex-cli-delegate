@@ -9,6 +9,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 ## What it does
 
 - Keeps Claude Agent SDK sessions alive between revision rounds; resumes the saved native session after a worker restart.
+- Defaults to no wall-clock termination; explicit runtime limits remain available, and old jobs can remove their limit during same-session recovery.
 - Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode retain their native CLI adapters.
 - Optionally notifies you on macOS after completion or an actionable condition, without waking Codex or polling with a model.
 - Observes hooks and structured progress without repeated model calls to check status.
@@ -118,7 +119,7 @@ export PYTHONDONTWRITEBYTECODE=1
 node --test skill/tests/test_remote_codex.cjs skill/tests/test_opencode_hook.mjs
 ```
 
-The MCP/SDK update passed 158 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
+The MCP/SDK update passed 164 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
 
 This project is derived from an implementation exercised with real macOS read/write, same-session revision, and hook tests. A separate three-round macOS SDK smoke verified same-process continuation, same-session recovery after restart, context retention, Stop events, and cache reads. See [validation boundaries](skill/references/mcp.md#validation-and-maintenance). Those runs are not portable proof of other machines or later CLI versions. Linux/Windows local MCP/SDK execution and deliberately induced provider outages have not been validated. Detailed backend references currently include Chinese operating notes.
 
