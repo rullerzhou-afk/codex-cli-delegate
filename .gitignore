@@ -1,0 +1,17 @@
+# Local caches and runtime evidence
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+**/state/
+**/real/
+*.log
+# Local accounts, settings and secrets
+.env
+.env.*
+.codex/
+.claude/
+.kimi-code/
+auth.json
+credentials.json
+config.toml
