@@ -22,6 +22,12 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 改名或搬迁已有安装时，Kimi hooks 的绝对路径需要迁移：等当前 Kimi 轮次结束，备份配置，保留旧目录；先用旧目录的 `kimi_hooks.py remove` 移除，再用新目录的 `install` 安装、`check` 核验。三步使用同一 Kimi 配置目录。详见 [迁移步骤](skill/references/kimi.md#改名或更换安装路径)。不要直接删掉被用户修改过的托管块；无需搬迁共享任务状态。Kimi hooks 还要求 `/usr/bin/python3 --version` 可正常执行。
 
+## 后台执行，结束后通知
+
+每次派单或返工后，用 `delegate_notify` 为准确的 job 和 round 挂接通知。确认独立观察程序启动后，Codex 可以结束本轮；普通程序在完成、失败或需要检查时发 macOS 通知，不调用模型、不自动唤醒 Codex。你回来后再在原任务中独立验收。
+
+系统弹窗已在 macOS 上实际确认可见；另用 SDK 协议模拟任务验证了调用方退出后仍完成并提交通知。普通进度和暂时的工具错误不刷屏，每轮重新挂接。旧 MCP 尚未加载第八个工具时，可使用等价脚本，不需重派任务。详见 [后台通知说明](skill/references/notifications.md)。
+
 ## 当前边界
 
 - 本机委派以 macOS 为已验证平台。将文件复制到 Windows 不等于 Windows 本机可运行；Mac 观察远程 Windows Codex 是另一项能力。
@@ -33,7 +39,7 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - Pi、ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-本次 MCP/SDK 更新通过 143 项 Python 测试和 11 项 JavaScript 测试，包含真实 MCP 协议连接及由模拟 CLI 驱动的固定版本 SDK。进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功；本次在允许读取后复验通过。
+本次 MCP/SDK 更新通过 158 项 Python 测试和 11 项 JavaScript 测试，包含真实 MCP 协议连接及由模拟 CLI 驱动的固定版本 SDK。进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功；本次在允许读取后复验通过。
 
 本地测试方法见 [英文 README](README.md#tests)，不调用付费模型。另有 macOS 真实三轮 SDK 验证：同进程返工、重启后恢复原会话、上下文保留、文件输出、Stop hooks 和缓存读取均有实际记录；不由此推算订阅额度节省比例。真实 API 故障、其他 CLI 版本和 Linux/Windows 本机 MCP/SDK 执行不能用本地自动化测试结果代替。详细边界见 [MCP 验证说明](skill/references/mcp.md#validation-and-maintenance)。
 

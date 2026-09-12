@@ -220,7 +220,10 @@ class MCPProtocol(unittest.IsolatedAsyncioTestCase):
                 async with ClientSession(read, write) as client:
                     await client.initialize()
                     tools = await client.list_tools()
-                    self.assertEqual(len(tools.tools), 7)
+                    self.assertEqual(len(tools.tools), 8)
+                    notification = await client.call_tool("delegate_notify", {
+                        "owner": "protocol-fixture", "job_id": "not-a-job", "expected_round": 0})
+                    self.assertTrue(notification.is_error)
                     result = await client.call_tool("delegate_list", {"owner": "protocol-fixture"})
                     self.assertFalse(result.is_error)
                     bad = await client.call_tool("delegate_start", {"owner": "protocol-fixture", "request_id": "bad",

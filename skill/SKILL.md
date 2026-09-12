@@ -11,6 +11,7 @@ Codex prepares the task and independently reviews the result. Prefer the `codex-
 
 - `delegate_start`: provide task text, the intended checkout, authorized scope, acceptance criteria, and necessary inputs. Use the calling Codex task's actual ID as `owner`, not the MCP server's startup task ID.
 - Generate one stable `request_id` per new dispatch or revision. Retry an uncertain call with the same ID and identical parameters; use a new ID for changed work. Save the returned job ID, round, session ID, and cursor.
+- Background notification mode: after each successful start/revise, call `delegate_notify` with the actual owner, job ID, and `expected_round`. Confirm notification state `watching` and process `alive` (or inspect an already submitted terminal receipt) before ending the Codex turn. Save the job and round for review when the user returns. If the new MCP tool is not loaded, use the equivalent [notification script](references/notifications.md). Do not claim a reminder is arranged if arming failed.
 - `delegate_wait`: wait inside the program, normally 600 seconds, without model polling. Start with cursor `-1:0`, then pass the returned cursor. A wait timeout does not mean the job failed; continue waiting without restarting it.
 - `awaiting_review` means execution evidence passed verification. Inspect the actual diff, prior-edit baseline, artifacts, and relevant tests. For corrections, use `delegate_revise` with the current `expected_round` to continue the same backend session. Revisions are unlimited by default; diagnose repeated failures rather than retrying mechanically.
 - `delegate_accept`: supply the current round and actual independent review notes. Acceptance closes the idle SDK connection and releases the checkout lock; it does not publish or merge changes.
@@ -23,7 +24,9 @@ Codex prepares the task and independently reviews the result. Prefer the `codex-
 - Claude uses restricted task settings. Declare outside references with `read_dirs`, required inputs with `required_files`, and only narrow authorized Bash rules in `allow_tools`. SDK mode rejects Bash `run_in_background`; do not authorize commands that background themselves or evade the write scope. This is not an OS sandbox. To change read directories, stop and use CLI `revise --recover --read-dir` on the existing job.
 - Any applicable Claude quota window at 90% pauses subsequent dispatches and revisions while allowing the active round to finish. Unknown or stale quota is not zero. Do not bypass a pause with a different account, model, threshold, or state root. Read [quota and inputs](references/quota-and-inputs.md) when needed.
 - Preserve complete visible model output and exact provenance for material findings, blockers, architecture decisions, or disagreements. Follow [evidence and adjudication](references/review-evidence.md), independently decide each finding, and pass `evidence_dir` to accept. Status summaries are not original evidence; identify reviewers who did not participate.
-- Keep the calling task active through waiting, review, and necessary revisions until acceptance, user cancellation, or an actionable blocker. An idle worker does not guarantee waking an ended Codex task.
+- Follow the user's choice of background notifications or in-task waiting. Background mode may end the current Codex turn after the watcher confirms readiness; review and revise when the user returns. Notifications do not wake Codex, accept work, or release checkout locks. In-task waiting continues through review until acceptance, user cancellation, or an actionable blocker.
+
+Read [background notifications](references/notifications.md) for arming, disabling, testing visibility, and delivery limits.
 
 ## Backend references
 

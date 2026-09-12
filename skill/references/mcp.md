@@ -37,6 +37,7 @@ Reuse the existing CLI login; the adapter explicitly selects that executable ins
 | `delegate_status` | owner, job_id, details | Compact status; optional diagnostic details |
 | `delegate_list` | owner | Find the caller's jobs; returns a jobs list |
 | `delegate_wait` | owner, job_id, cursor, timeout | Programmatic event/round waiting without model calls |
+| `delegate_notify` | owner, job_id, expected_round, enabled | Arm/disable detached macOS notifications for the current round |
 | `delegate_stop` | owner, job_id | Stop verified owned processes and retain work and evidence |
 | `delegate_accept` | owner, job_id, expected_round, notes, evidence_dir | Record independent review, close the SDK connection, release the checkout |
 
@@ -65,3 +66,5 @@ The offline test suite uses the actual pinned SDK with a protocol fake CLI, plus
 A separate macOS run on 2026-09-12 used Claude Code 2.1.261 and `claude-opus-5/max`: two rounds shared a process; a third resumed the same session after stopping and starting a new process. Conversation context, file output, native verification, Stop events, and cache reads were observed. This was an implementation smoke test, not a public fixture or proof of another installation. Linux/Windows local MCP/SDK execution and deliberately induced provider outages are not validated. Other SDK hooks and all permission-denial cases were not separately exercised against the real provider in that run.
 
 Dependencies are pinned to `claude-agent-sdk==0.2.152` and `mcp==2.2.0`. The adapter subclasses one internal SDK subprocess transport to retain raw events and actual process identity. Upgrading requires rechecking protocol behavior, hooks, evidence correspondence, and process cleanup. Kimi/OpenCode retain their CLI adapters; Pi, ACP, and OpenCode Server are not implemented.
+
+For opt-in background completion reminders, see [notifications](notifications.md). The detached watcher makes no model calls and survives MCP disconnection; arm it again after each revision.

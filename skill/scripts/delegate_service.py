@@ -38,6 +38,8 @@ class DelegateService:
             if usage:
                 data["usage"] = {k: usage[k] for k in ("input_tokens", "cache_creation_input_tokens",
                     "cache_read_input_tokens", "output_tokens") if k in usage}
+        from delegate_notify import summary as notification_summary
+        data["notification"] = notification_summary(ctx, job)
         if job.get("attention"):
             data["attention"] = job["attention"]
         data["evidence"] = {"job": str(root / "job.json"), "stream": str(root / record["evidence"]["stdout"])}

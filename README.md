@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, and OpenCode**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides seven delegation tools. The original CLI entry point remains available.
+A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, and OpenCode**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
 
 It also observes the completion of an exact **remote Windows Codex CLI turn** over SSH. Remote observation and local delegation are separate capabilities.
 
@@ -10,6 +10,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 
 - Keeps Claude Agent SDK sessions alive between revision rounds; resumes the saved native session after a worker restart.
 - Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode retain their native CLI adapters.
+- Optionally notifies you on macOS after completion or an actionable condition, without waking Codex or polling with a model.
 - Observes hooks and structured progress without repeated model calls to check status.
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
 - Retains local evidence and supports recovery and conservative process stopping.
@@ -66,6 +67,12 @@ Invoke `$codex-cli-delegate` in Codex, for example:
 
 The MCP entry point is `scripts/delegate_mcp.py`; the retained public CLI entry point is `scripts/delegate.py`. The skill prefers MCP and routes CLI diagnostics to [the original workflow](skill/references/cli-workflow.md). The internal `claude_task.py` module and `~/.codex/claude-delegate` state directory retain their legacy names for lock, hook, and recovery compatibility. Existing private installations are not automatically migrated. Do not enable two overlapping skill copies unintentionally or move a running job's state directory.
 
+### Run in the background and notify me
+
+After dispatch or revision, call `delegate_notify` for the returned job and round. Once the detached watcher confirms readiness, Codex can end its turn; a local program watches completion and submits a macOS notification. Return to the original task for independent review. There are no model calls from the notification program.
+
+The notification channel was visibly checked on macOS, separately from an SDK protocol-fake run that completed after its controller exited. An OS submission receipt alone does not prove a visible banner. Normal progress stays quiet; accepted or manually stopped work stays quiet. Notifications are opt-in and bound to one round. See [setup, script fallback, and delivery limits](skill/references/notifications.md).
+
 ### Moving or renaming an existing installation
 
 Before an in-place update, back up the skill/configuration and finish or stop running and idle SDK jobs. Create virtual environments at their final location; do not move an existing environment. Keep the shared job state and native sessions in place.
@@ -111,7 +118,7 @@ export PYTHONDONTWRITEBYTECODE=1
 node --test skill/tests/test_remote_codex.cjs skill/tests/test_opencode_hook.mjs
 ```
 
-The MCP/SDK update passed 143 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
+The MCP/SDK update passed 158 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
 
 This project is derived from an implementation exercised with real macOS read/write, same-session revision, and hook tests. A separate three-round macOS SDK smoke verified same-process continuation, same-session recovery after restart, context retention, Stop events, and cache reads. See [validation boundaries](skill/references/mcp.md#validation-and-maintenance). Those runs are not portable proof of other machines or later CLI versions. Linux/Windows local MCP/SDK execution and deliberately induced provider outages have not been validated. Detailed backend references currently include Chinese operating notes.
 
