@@ -24,9 +24,9 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 本机委派默认不设整轮硬超时；明确指定时限时才到点停止。旧任务可在原会话恢复时取消旧时限。MCP 单次等待上限不等于任务运行上限；不限时任务的通知程序也不会按旧时间退出。
 
-## 后台执行，结束后通知
+## 后台执行与自动回传
 
-每次派单或返工后，用 `delegate_notify` 为准确的 job 和 round 挂接通知。确认独立观察程序启动后，Codex 可以结束本轮；普通程序在完成、失败或需要检查时发 macOS 通知，不调用模型、不自动唤醒 Codex。你回来后再在原任务中独立验收。
+每次派单或返工后，用 `delegate_notify` 为准确的 job 和 round 挂接通知。确认独立观察程序启动后，Codex 可以结束本轮；普通程序在完成、失败或需要检查时发 macOS 通知。传 `wake_codex=true` 可在终态通过官方 `codex queue` 回传原任务，让 Codex 读取当前证据后独立验收，必要时原会话返工并为新轮重新挂接。传 `false` 只弹通知；省略保留本轮设置，新订阅默认关闭自动回传。等待期间不调用模型，继续验收会正常使用 Codex 额度。
 
 系统弹窗已在 macOS 上实际确认可见；另用 SDK 协议模拟任务验证了调用方退出后仍完成并提交通知。普通进度和暂时的工具错误不刷屏，每轮重新挂接。旧 MCP 尚未加载第八个工具时，可使用等价脚本，不需重派任务。详见 [后台通知说明](skill/references/notifications.md)。
 
@@ -58,3 +58,5 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要时自动刷新空闲 SDK 连接并保留原 session。已验收任务可以继续修改，旧验收记录保留，新一轮重新检查目录占用并验收。命令规则改用 JSON 数组传递，支持长路径和逗号。旧 MCP 可用安装目录虚拟环境运行 `scripts/delegate.py revise`，无需重派任务。
 
 本次 173 项 Python、11 项 JavaScript 本地检查通过。真实 Claude 测试第一轮通过，第二轮在执行新增授权命令前被服务端以 `reasoning_extraction` 拒绝；新增授权真实执行与验收后续接标为 **NOT TESTED**，没有用模拟测试冒充真实通过，也没有换模型、账号或会话重试拒绝。日常用户/项目授权和自定义 hooks 仍不自动继承，配套 SDK 依赖保持固定安装。
+
+自动回传新增验证：31 项通知检查和 15 项 MCP/SDK 检查通过；一条隔离终态事件已实际回到原 Codex 活跃任务，并核对入队回执。该检查不调用外部模型；未测试空闲任务、关闭应用或重启恢复。需本机 Codex CLI 提供 `queue --thread --message`。回传不代表自动验收通过，仍需核对当前轮次、证据和用户授权。

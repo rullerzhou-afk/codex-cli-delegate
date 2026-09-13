@@ -37,7 +37,7 @@ Reuse the existing CLI login; the adapter explicitly selects that executable ins
 | `delegate_status` | owner, job_id, details | Compact status; optional diagnostic details |
 | `delegate_list` | owner | Find the caller's jobs; returns a jobs list |
 | `delegate_wait` | owner, job_id, cursor, timeout | Programmatic event/round waiting without model calls |
-| `delegate_notify` | owner, job_id, expected_round, enabled | Arm/disable detached macOS notifications for the current round |
+| `delegate_notify` | owner, job_id, expected_round, enabled, wake_codex | Arm/disable per-round desktop notifications and optional Codex continuation |
 | `delegate_stop` | owner, job_id | Stop verified owned processes and retain work and evidence |
 | `delegate_accept` | owner, job_id, expected_round, notes, evidence_dir | Record independent review, close the SDK connection, release the checkout |
 
@@ -45,7 +45,7 @@ Use the caller's actual task ID as `owner` (for example its `CODEX_THREAD_ID`), 
 
 Create a new `request_id` for each new start/revise. If the response is lost, retry the same ID and identical parameters. Receipts and the saved round both retain the request digest; reconnecting does not create another model call. Reusing an ID with changed content returns `request_conflict`. If the job was saved but launch failed, inspect it and explicitly recover rather than resubmitting new work.
 
-`expected_round` rejects stale revisions and acceptance. Start wait with cursor `-1:0`, then reuse the returned cursor. Disconnecting or cancelling a wait does not stop the detached job. Recover with list/status before dispatching again. This does not guarantee waking an ended Codex task.
+`expected_round` rejects stale revisions and acceptance. Start wait with cursor `-1:0`, then reuse the returned cursor. Disconnecting or cancelling a wait does not stop the detached job. Recover with list/status before dispatching again. Automatic continuation requires an explicit `delegate_notify(..., wake_codex=true)` subscription and the local Codex queue capability. A queue receipt is not acceptance.
 
 ## Completion, hooks, and permissions
 
@@ -55,7 +55,7 @@ Raw streams, hook events, errors, and native transcript indices stay in the shar
 
 Task-scoped Stop, StopFailure, PostToolUseFailure, and idle Notification events are bound to the exact round through SDK callbacks. PreToolUse rejects Bash `run_in_background`. Global/project custom hooks are not automatically enabled: like the restricted CLI path, this adapter isolates task settings. Kimi retains its existing managed hook implementation.
 
-Claude uses Read/Write/Edit/Bash/Glob/Grep with writes approved in the intended working directory and extra directories for reference reads. Bash needs narrowly authorized rules; these are not OS isolation and must not allow backgrounding or escaping the write scope. To change extra read directories, stop the existing job and use the retained CLI `revise --recover --read-dir` to rebuild its SDK connection.
+Claude uses Read/Write/Edit/Bash/Glob/Grep with writes approved in the intended working directory and extra directories for reference reads. Bash needs narrowly authorized rules; these are not OS isolation and must not allow backgrounding or escaping the write scope. Add authorized commands or reference directories with `delegate_revise`; an idle SDK connection refreshes automatically while preserving its session. Use the installed CLI revision fallback if the loaded MCP schema lacks these additive inputs.
 
 At observed 90% in any applicable native Claude quota window, the active round finishes and subsequent calls pause. Missing, stale, or not-yet-refreshed quota remains unknown. Do not change state roots to bypass this guard.
 

@@ -12,7 +12,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 - Adds authorized command rules and reference inputs to the same Claude job, refreshing an idle connection automatically. Accepted jobs can be continued with their prior acceptance preserved. Long paths and commas in command rules are supported.
 - Defaults to no wall-clock termination; explicit runtime limits remain available, and old jobs can remove their limit during same-session recovery.
 - Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode retain their native CLI adapters.
-- Optionally notifies you on macOS after completion or an actionable condition, without waking Codex or polling with a model.
+- Optionally sends macOS reminders and returns terminal results to the original Codex task for independent review, without model polling while waiting.
 - Observes hooks and structured progress without repeated model calls to check status.
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
 - Retains local evidence and supports recovery and conservative process stopping.
@@ -71,9 +71,11 @@ The MCP entry point is `scripts/delegate_mcp.py`; the retained public CLI entry 
 
 ### Run in the background and notify me
 
-After dispatch or revision, call `delegate_notify` for the returned job and round. Once the detached watcher confirms readiness, Codex can end its turn; a local program watches completion and submits a macOS notification. Return to the original task for independent review. There are no model calls from the notification program.
+After dispatch or revision, call `delegate_notify` for the returned job and round. Once the detached watcher confirms readiness, Codex can end its turn; a local program watches completion and submits a macOS notification. For automatic continuation, pass `wake_codex=true`: one terminal message enters the original task through the official `codex queue` command. Codex checks current evidence, reviews independently, and re-arms after any same-session revision. `false` selects desktop-only reminders; omission preserves the round's setting, initially false. Waiting makes no model calls; resumed review consumes normal Codex usage.
 
 The notification channel was visibly checked on macOS, separately from an SDK protocol-fake run that completed after its controller exited. An OS submission receipt alone does not prove a visible banner. Normal progress stays quiet; accepted or manually stopped work stays quiet. Notifications are opt-in and bound to one round. See [setup, script fallback, and delivery limits](skill/references/notifications.md).
+
+The return path passed 31 notification checks and 15 MCP/SDK checks with local fixtures. One actual isolated terminal event was received in its original active Codex task, with a matching queue receipt. Idle-task delivery, closed-app operation, and reboot recovery were not exercised by that smoke check. This feature requires local Codex CLI support for `queue --thread --message`.
 
 ### Moving or renaming an existing installation
 
@@ -95,7 +97,7 @@ The Kimi hook receiver requires a working `/usr/bin/python3`; verify it with `/u
 
 Default OpenCode/Kimi profiles are read-only. Opting into their Bash tool grants shell capability, not Claude-style command-pattern filtering. See the backend references before adding tools. This tool does not create an operating-system sandbox.
 
-Completion hooks and idle events are notifications, not proof of success. The worker checks native records at the SDK result boundary or, for CLI rounds, after process exit. SDK acceptance closes the idle connection; waiting alone makes no new model calls. Current-task waiting does not promise to wake an ended Codex task or operate while the desktop application is closed.
+Completion hooks and idle events are notifications, not proof of success. The worker checks native records at the SDK result boundary or, for CLI rounds, after process exit. SDK acceptance closes the idle connection; waiting alone makes no new model calls. Automatic task continuation is a separate opt-in notification subscription, not a consequence of waiting or receiving a hook. Closed-app and reboot recovery are not guaranteed.
 
 Quota monitoring uses Claude's native account windows. Missing or stale data remains unknown; this is not a guaranteed hard spending cap. Kimi and DeepSeek account quotas are not monitored.
 

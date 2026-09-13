@@ -330,6 +330,8 @@ class MCPProtocol(unittest.IsolatedAsyncioTestCase):
                     await client.initialize()
                     tools = await client.list_tools()
                     self.assertEqual(len(tools.tools), 8)
+                    notify_tool = next(t for t in tools.tools if t.name == "delegate_notify")
+                    self.assertIn("wake_codex", notify_tool.input_schema["properties"])
                     start_tool = next(t for t in tools.tools if t.name == "delegate_start")
                     self.assertIsNone(start_tool.input_schema["properties"]["timeout"].get("default"))
                     notification = await client.call_tool("delegate_notify", {

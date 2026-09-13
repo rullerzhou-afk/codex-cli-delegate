@@ -66,10 +66,11 @@ def build_server(service):
         return await service.wait(owner, job_id, cursor, timeout)
 
     @expose()
-    async def delegate_notify(owner: str, job_id: str, expected_round: int, enabled: bool = True) -> dict:
-        """Arm macOS notifications for this round, or disable them. Confirm watching before ending the Codex turn; no automatic Codex wakeup. Re-arm after each revision."""
+    async def delegate_notify(owner: str, job_id: str, expected_round: int, enabled: bool = True,
+                              wake_codex: bool | None = None) -> dict:
+        """Arm notifications for this round. wake_codex=true queues one completion/failure message to the original owner task; false keeps desktop notifications only; omitted preserves the setting. Confirm watching before ending the turn, and re-arm each revision."""
         from delegate_notify import arm
-        return await asyncio.to_thread(arm, service.context(owner), job_id, enabled, expected_round)
+        return await asyncio.to_thread(arm, service.context(owner), job_id, enabled, expected_round, wake_codex)
 
     @expose()
     async def delegate_stop(owner: str, job_id: str) -> dict:

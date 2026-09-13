@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Opt-in, per-round macOS notifications; detached watcher, no model calls.
+"""Per-round macOS notifications with optional event-driven Codex continuation.
 
 Delivery receipts mean submission to macOS, not proof of a visible banner.
 Claim before delivery: an ambiguous crash cannot cause automatic duplicates.
 """
 import argparse
 import os
+import re
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -34,6 +36,100 @@ def send(title, body, subtitle):
                 'reason': type(exc).__name__}
 
 
+QUEUE_ACK = re.compile(r"^Queued message ([0-9a-fA-F-]{36}) for thread ([0-9a-fA-F-]{36})\.$")
+
+
+def codex_target(owner):
+    try:
+        target = str(uuid.UUID(owner))
+    except (ValueError, TypeError, AttributeError):
+        raise ct.CliError('wake_target', 'automatic continuation requires the original Codex task UUID')
+    if target != owner:
+        raise ct.CliError('wake_target', 'use the exact original Codex task UUID, not a name or prefix')
+    return target
+
+
+def codex_preflight(owner):
+    codex_target(owner)
+    binary = shutil.which('codex')
+    if not binary:
+        raise ct.CliError('wake_unavailable', 'Codex CLI not found; desktop-only notifications remain available')
+    binary = os.path.realpath(binary)
+    try:
+        result = subprocess.run([binary, 'queue', '--help'], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ct.CliError('wake_unavailable', 'Codex queue probe failed: ' + type(exc).__name__)
+    if result.returncode or not all(flag in result.stdout for flag in ('--thread', '--message')):
+        raise ct.CliError('wake_unavailable', 'installed Codex does not expose queue --thread/--message')
+    return binary
+
+
+def wake_message(ctx, job, index):
+    # Queue only a locator and fixed instructions, never agent output or source
+    # content. The resumed Codex must read current state before taking action.
+    marker = 'delegate-result:' + job['job_id'] + ':' + str(index)
+    locator = {'owner': job['owner'], 'job_id': job['job_id'], 'round': index,
+               'state_dir': ctx.state_dir, 'receipt': str(location(ctx, job, index))}
+    import json
+    message = ('[委派结果回传 ' + marker + ']\n' + json.dumps(locator, ensure_ascii=False)
+        + '\n后台委派已结束或需要检查。请读取此 job 的当前状态、本轮证据和回传 receipt；若回传已关闭、轮次已变化、已验收或已停止，忽略这条旧通知。'
+        '按用户原有授权继续独立验收；需要返修时沿用原会话并为新轮挂接自动回传。'
+        '不要凭通知自动验收，不扩大授权，不重复派单，不绕过额度暂停、权限拒绝或模型拒绝。'
+        '遇到必须用户决定的问题再通知用户。')
+    return marker, message
+
+
+def queue_codex(binary, owner, message):
+    target = codex_target(owner)
+    try:
+        result = subprocess.run([binary, 'queue', '--thread', target, '--message', message],
+                                capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=45)
+    except OSError as exc:
+        return {'state': 'failed', 'reason': type(exc).__name__}
+    except subprocess.TimeoutExpired:
+        return {'state': 'uncertain', 'reason': 'queue_timeout'}
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            match = QUEUE_ACK.fullmatch(line.strip())
+            if match:
+                try:
+                    queued_id, received_target = (str(uuid.UUID(value)) for value in match.groups())
+                except ValueError:
+                    continue
+                if received_target == target:
+                    return {'state': 'queued', 'queued_message_id': queued_id, 'target': target}
+    # An unsuccessful process may already have enqueued durably. Never retry
+    # automatically when the CLI did not return an exact matching receipt.
+    return {'state': 'uncertain', 'reason': 'queue_ack_missing', 'returncode': result.returncode}
+
+
+def wake_once(ctx, job_id, index, generation, queuer=queue_codex):
+    with ct.StateLock(ctx.state_dir):
+        job = ctx.load_owned(job_id)
+        path = location(ctx, job, index)
+        data = read(path)
+        if (data.get('generation') != generation or not data.get('enabled') or not data.get('wake_codex')
+                or data.get('wake') or job['current_round'] != index
+                or ct.current_round(job)[1].get('run_token') != data.get('run_token')
+                or job.get('stop_requested') or job['phase'] in ct.BUSY_PHASES | ct.TERMINAL_DECISION_PHASES):
+            return
+        codex_target(job['owner'])
+        marker, message = wake_message(ctx, job, index)
+        data['wake'] = {'state': 'submitting', 'at': ct.iso(), 'marker': marker, 'target': job['owner']}
+        ct.write_json(str(path), data)
+        binary = data['codex_bin']
+    # A queued message may wake this very task. Avoid holding its state lock
+    # across queue delivery; a racing stop/revision is checked again by Codex.
+    result = queuer(binary, job['owner'], message)
+    with ct.StateLock(ctx.state_dir):
+        latest = read(path)
+        if latest.get('generation') == generation:
+            latest['wake'].update(result)
+            ct.write_json(str(path), latest)
+    if result['state'] in ('failed', 'uncertain'):
+        send('委派任务：自动回传未确认', '任务记录已保存，请回到原 Codex 任务检查；程序不会重复发送。', job_id[:8])
+
+
 def location(ctx, job, index=None):
     if index is None:
         index = job['current_round']
@@ -51,17 +147,19 @@ def summary(ctx, job):
     data = read(location(ctx, job))
     if not data:
         return {'enabled': False}
-    result = {k: data.get(k) for k in ('enabled', 'round', 'state', 'deliveries', 'reason') if k in data}
+    result = {k: data.get(k) for k in ('enabled', 'round', 'state', 'deliveries', 'reason', 'wake_codex', 'wake') if k in data}
     if data.get('state') in ('starting', 'watching'):
         result['process'] = ct.identity_state(data.get('worker'))
     result['receipt'] = str(location(ctx, job))
     return result
 
 
-def arm(ctx, job_id, enabled=True, expected_round=None):
+def arm(ctx, job_id, enabled=True, expected_round=None, wake_codex=None):
     """Subscribe only to the current round; safe to repeat after a lost reply."""
     if type(enabled) is not bool:
         raise ct.CliError('bad_notification', 'enabled must be a boolean')
+    if wake_codex is not None and type(wake_codex) is not bool:
+        raise ct.CliError('bad_notification', 'wake_codex must be a boolean')
     if enabled and sys.platform != 'darwin':
         raise ct.CliError('notification_unsupported', 'desktop notifications currently require macOS')
     with ct.StateLock(ctx.state_dir):
@@ -78,20 +176,28 @@ def arm(ctx, job_id, enabled=True, expected_round=None):
             return {'ok': True, 'job_id': job_id, 'notification': summary(ctx, job)}
         if job['phase'] in ct.TERMINAL_DECISION_PHASES:
             raise ct.CliError('notification_closed', 'accepted or stopped rounds do not need a completion notification')
+        if data.get('run_token') != record.get('run_token'):
+            data = {}
+        want_wake = data.get('wake_codex', False) if wake_codex is None else wake_codex
+        if want_wake and (not data.get('wake_codex') or not data.get('codex_bin')):
+            data['codex_bin'] = codex_preflight(job['owner'])
+        data['wake_codex'] = want_wake
         if data.get('run_token') == record.get('run_token'):
+            ct.write_json(str(path), data)
             # A claimed terminal submission is never replayed, even if its
             # process died before saving the OS response.
-            if 'terminal' in data.get('deliveries', {}):
+            if 'terminal' in data.get('deliveries', {}) and (not want_wake or data.get('wake')):
                 return {'ok': True, 'job_id': job_id, 'notification': summary(ctx, job)}
             if data.get('enabled') and data.get('state') in ('starting', 'watching'):
                 state = ct.identity_state(data.get('worker'))
-                if state == 'alive':
+                if state == 'alive' and (not want_wake or data.get('protocol') == 2):
                     return {'ok': True, 'job_id': job_id, 'notification': summary(ctx, job)}
-                if state not in ct.STATE_GONE:
+                if state != 'alive' and state not in ct.STATE_GONE:
                     raise ct.CliError('notification_identity', 'watcher identity is uncertain; inspect before rearming')
         generation = str(uuid.uuid4())
         data = dict(enabled=True, state='starting', round=index, run_token=record['run_token'],
-                    generation=generation, deliveries=data.get('deliveries', {}), owner=ctx.owner())
+                    generation=generation, protocol=2, deliveries=data.get('deliveries', {}), owner=ctx.owner(),
+                    wake_codex=want_wake, codex_bin=data.get('codex_bin'), wake=data.get('wake'))
         ct.write_json(str(path), data)
         argv = [sys.executable, str(Path(__file__).resolve()), '--state-dir', ctx.state_dir,
                 '--owner', ctx.owner(), '_watch', job_id, '--round', str(index),
@@ -146,8 +252,8 @@ def event_for(job, monitor, deliveries, expired=False):
     return None, False
 
 
-def tick(ctx, job_id, index, generation, sender=send, expired=False, reconcile=True):
-    """One locked decision plus bounded OS submission; never calls a model."""
+def tick(ctx, job_id, index, generation, sender=send, expired=False, reconcile=True, queuer=queue_codex):
+    """Observe locally; submit notifications and optionally one terminal queue event."""
     with ct.StateLock(ctx.state_dir):
         job = ctx.load_owned(job_id)
         path = location(ctx, job, index)
@@ -172,7 +278,7 @@ def tick(ctx, job_id, index, generation, sender=send, expired=False, reconcile=T
         else:
             event = None
         if not event:
-            data['state'] = 'finished' if done else 'watching'
+            data['state'] = 'watching'
             ct.write_json(str(path), data)
     if event:
         # Never hold the shared job lock while macOS may be slow to respond.
@@ -182,7 +288,14 @@ def tick(ctx, job_id, index, generation, sender=send, expired=False, reconcile=T
             if latest.get('generation') == generation:
                 latest['deliveries'][key].update(result)
                 if latest.get('enabled'):
-                    latest['state'] = 'finished' if done else 'watching'
+                    latest['state'] = 'watching'
+                ct.write_json(str(path), latest)
+    wake_once(ctx, job_id, index, generation, queuer)
+    if done:
+        with ct.StateLock(ctx.state_dir):
+            latest = read(path)
+            if latest.get('generation') == generation and latest.get('enabled'):
+                latest['state'] = 'finished'
                 ct.write_json(str(path), latest)
     return done
 
@@ -221,6 +334,10 @@ def main():
         command.add_argument('job')
         if name != 'status':
             command.add_argument('--expected-round', type=int, required=True)
+        if name == 'arm':
+            mode = command.add_mutually_exclusive_group()
+            mode.add_argument('--wake-codex', action='store_true', default=None)
+            mode.add_argument('--notify-only', action='store_false', dest='wake_codex')
     sub.add_parser('probe', help='send one visible test notification; no model call')
     worker = sub.add_parser('_watch', help=argparse.SUPPRESS)
     worker.add_argument('job')
@@ -239,7 +356,8 @@ def main():
                 with ct.StateLock(ctx.state_dir):
                     result = summary(ctx, ctx.load_owned(args.job))
             else:
-                result = arm(ctx, args.job, enabled=args.command == 'arm', expected_round=args.expected_round)
+                result = arm(ctx, args.job, enabled=args.command == 'arm', expected_round=args.expected_round,
+                             wake_codex=getattr(args, 'wake_codex', None))
         ct.emit(result)
         return 0 if result.get('ok', result.get('state') != 'failed') else 1
     except (ct.CliError, OSError, ValueError) as exc:

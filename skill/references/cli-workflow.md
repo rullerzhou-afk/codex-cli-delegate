@@ -36,7 +36,7 @@ These are the current adapter profiles, not universal recommendations or arbitra
 
 ## Dispatch, wait, review
 
-Before waiting, read [events and quiet waiting](events.md). Keep the calling Codex task active until completion, independent review, user cancellation, or an actionable blocker. A launched worker does not wake a task that has already ended.
+Before waiting, read [events and quiet waiting](events.md). For in-task waiting, keep the calling Codex task active through completion and independent review. For user-selected background continuation, arm `delegate_notify.py ... arm <job-id> --expected-round <round> --wake-codex` and confirm readiness before ending the turn. The worker alone does not send a return message; see [notifications](notifications.md).
 
 ```text
 python3 <absolute-skill-path>/scripts/delegate.py start --cwd <directory> --prompt-file <task-file>
