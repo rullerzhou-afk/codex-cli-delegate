@@ -76,3 +76,5 @@ New jobs default to `timeout=null`: no wall-clock termination. Only set a positi
 Existing jobs keep saved numeric limits. `delegate_revise` defaults to `timeout="inherit"`; `timeout=null` removes the old limit for subsequent rounds while preserving the native session. Each round retains its timeout history. For CLI recovery use `revise --recover --timeout unlimited`.
 
 An already loaded MCP may still have the old `timeout=1800` schema and in-memory defaults. Inspect the returned/saved timeout. Until the connection loads the new entry point, use the installed CLI with `start --transport sdk --timeout unlimited` or `revise --recover --timeout unlimited`. Updating files does not alter timers in already running old workers.
+
+Kimi/OpenCode dispatch/status returns selected `tools`; Claude returns saved `allow_tools` rules. Kimi defaults include ReadMediaFile; see [capabilities](tools.md). A previously loaded MCP may retain old defaults: inspect the receipt and use explicit selections or the updated CLI without redispatching an existing job.

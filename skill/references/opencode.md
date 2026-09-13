@@ -27,3 +27,5 @@
 The official API name is `deepseek-flash`. The older `deepseek-v4-flash` alias is temporarily routed to V4.1 Flash; new jobs use the official alias. Existing jobs keep their recorded model. Source: https://deepseek.com/news/deepseek-v4-1-flash/
 
 旧 MCP 连接若仍返回 `opencode_version` 的精确版本错误，检查原 job 后使用已更新 CLI 的同等入口；不能要求用户降级或重复派发已有工作。刷新连接后加载能力检查。
+
+Additional optional tools: webfetch, websearch, todowrite, and lsp. Inputs write/apply_patch/multiedit normalize to edit permission, which permits all these file modifications. Existing provider/language-server requirements still apply; see [capabilities](tools.md).

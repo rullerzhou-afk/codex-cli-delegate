@@ -60,3 +60,9 @@ Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要
 本次 173 项 Python、11 项 JavaScript 本地检查通过。真实 Claude 测试第一轮通过，第二轮在执行新增授权命令前被服务端以 `reasoning_extraction` 拒绝；新增授权真实执行与验收后续接标为 **NOT TESTED**，没有用模拟测试冒充真实通过，也没有换模型、账号或会话重试拒绝。日常用户/项目授权和自定义 hooks 仍不自动继承，配套 SDK 依赖保持固定安装。
 
 自动回传新增验证：31 项通知检查和 15 项 MCP/SDK 检查通过；一条隔离终态事件已实际回到原 Codex 活跃任务，并核对入队回执。该检查不调用外部模型；未测试空闲任务、关闭应用或重启恢复。需本机 Codex CLI 提供 `queue --thread --message`。回传不代表自动验收通过，仍需核对当前轮次、证据和用户授权。
+
+### 工具能力补全（2026-09-13）
+
+Kimi 默认增加 ReadMediaFile，支持图片/视频；可选 WebSearch、FetchURL、TodoList。Claude 增加 NotebookEdit 和按任务授权的 WebFetch/WebSearch；OpenCode 增加 webfetch/websearch/todowrite/lsp，write/apply_patch 输入归一到 edit 权限。CLI 与 MCP 共用清单，`scripts/delegate.py capabilities` 可离线查询。[能力与旧会话边界](skill/references/tools.md)。
+
+43 项相关本地检查通过；一次真实 Kimi 0.42.0 任务调用 ReadMediaFile，工具返回图片内容，并正确识别自制图片的颜色形状，没有给 Bash。新增网页/Notebook/LSP 尚未做真实提供方调用验证。更新不会给旧 Kimi 会话更换已保存的工具 profile。

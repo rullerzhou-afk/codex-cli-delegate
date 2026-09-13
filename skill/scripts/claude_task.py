@@ -54,8 +54,9 @@ MODEL = "claude-opus-5"
 EFFORT = "max"
 
 BASE_ALLOWED_TOOLS = ("Read", "Glob", "Grep")
-ENABLED_TOOLS = "Read,Write,Edit,Bash,Glob,Grep"
-ALLOW_RULE_TOOLS = frozenset(("Read", "Write", "Edit", "Glob", "Grep", "Bash"))
+ENABLED_TOOLS = "Read,Write,Edit,NotebookEdit,Bash,Glob,Grep"
+from tool_catalog import CLAUDE_OPTIONAL, KIMI_TOOLS, OPENCODE_TOOLS, OPENCODE_ALIASES
+ALLOW_RULE_TOOLS = frozenset(("Read", "Write", "Edit", "Glob", "Grep", "Bash") + CLAUDE_OPTIONAL)
 
 # Only these three variables are injected, and only into the child environment.
 CHILD_ENV_OVERRIDES = {
@@ -727,6 +728,11 @@ def find_conflict(ctx, key, ignore_job_id=None):
 # --------------------------------------------------------------------------- #
 
 
+def enabled_tools(job):
+    optional = {rule.split("(", 1)[0] for rule in job.get("allow_tools") or []}
+    return ENABLED_TOOLS.split(",") + [t for t in CLAUDE_OPTIONAL if t in optional]
+
+
 def build_claude_argv(job, run_token, resume):
     """Identical model/effort surface for the first call and every revision."""
     argv = [
@@ -746,7 +752,7 @@ def build_claude_argv(job, run_token, resume):
         "--permission-mode",
         "dontAsk",
         "--tools",
-        ENABLED_TOOLS,
+        ",".join(enabled_tools(job)),
         "--allowed-tools",
         ",".join(BASE_ALLOWED_TOOLS),
     ]
@@ -1482,6 +1488,11 @@ def backend_baseline(job):
         from kimi_backend import baseline
         return baseline(job)
     return snapshot_assistant_baseline(job["session_id"], job["cwd"], job.get("claude_config_dir"))
+
+
+def cmd_capabilities(ctx, args):
+    from tool_catalog import capabilities
+    return capabilities()
 
 
 def cmd_start(ctx, args):
@@ -2516,10 +2527,10 @@ def build_parser():
     start.add_argument("--backend", choices=("claude", "kimi", "opencode"), default="claude")
     start.add_argument("--transport", choices=("cli", "sdk"), default="cli", help="Claude transport; MCP uses sdk")
     start.add_argument("--opencode-bin", default=None, help="OpenCode executable")
-    start.add_argument("--opencode-tool", action="append", default=[], choices=("read", "glob", "grep", "edit", "bash"))
+    start.add_argument("--opencode-tool", action="append", default=[], choices=OPENCODE_TOOLS + tuple(OPENCODE_ALIASES))
     start.add_argument("--kimi-bin", default=None, help="Kimi executable (default: which('kimi'))")
-    start.add_argument("--kimi-tool", action="append", default=[], choices=("Read", "Glob", "Grep", "Write", "Edit", "Bash"),
-                       help="Kimi tool allowlist, repeatable; default Read/Glob/Grep; Bash enables unrestricted shell capability")
+    start.add_argument("--kimi-tool", action="append", default=[], choices=KIMI_TOOLS,
+                       help="Kimi tool allowlist, repeatable; default Read/ReadMediaFile/Glob/Grep; Bash enables unrestricted shell capability")
     start.add_argument("--cwd", required=True, help="absolute work directory")
     start.add_argument("--prompt-file", required=True, help="file containing the task text")
     start.add_argument("--allow-tool", action="append", default=[], help="extra narrow permission rule, repeatable")
@@ -2551,6 +2562,7 @@ def build_parser():
     event_wait.add_argument("--after", default="-1:0", help="last returned round:sequence cursor")
 
 
+    sub.add_parser("capabilities", help="show supported tool choices and runtime dependencies; no model call")
     sub.add_parser("list", help="list this owner's jobs")
     sub.add_parser("quota", help="read current Claude quota from native local records; no model call")
 
@@ -2586,6 +2598,7 @@ def build_parser():
 
 
 HANDLERS = {
+    "capabilities": cmd_capabilities,
     "start": cmd_start,
     "revise": cmd_revise,
     "status": cmd_status,

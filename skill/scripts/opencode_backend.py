@@ -12,7 +12,7 @@ from kimi_backend import capture_identity, error
 
 MODEL = 'deepseek/deepseek-flash'
 EFFORT = 'high'
-TOOLS = ('read', 'glob', 'grep', 'edit', 'bash')
+from tool_catalog import OPENCODE_TOOLS as TOOLS, select
 REFERENCE_VERSION = '1.18.30'
 REQUIRED_FLAGS = ('agent', 'dir', 'title', 'format', 'model', 'variant', 'session')
 
@@ -25,6 +25,7 @@ def probe(binary, *args):
 
 
 def prepare(explicit, tools, rules):
+    chosen = select('opencode', tools)
     if sys.platform != 'darwin':
         error('opencode_platform', 'Process identity currently verified on macOS only')
     if rules:
@@ -48,7 +49,7 @@ def prepare(explicit, tools, rules):
         error('opencode_incompatible', 'OpenCode run is missing required options: ' + ', '.join('--' + f for f in missing))
     data = Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share')))
     return dict(opencode_bin=str(binary), opencode_db=str(data/'opencode/opencode.db'),
-                opencode_tools=sorted(set(tools or ('read','glob','grep'))), opencode_version=version,
+                opencode_tools=chosen, opencode_version=version,
                 opencode_compatibility=dict(cli_options='checked', reference_version=REFERENCE_VERSION,
                                             matches_reference=version == REFERENCE_VERSION,
                                             native_evidence='pending_runtime_verification'))

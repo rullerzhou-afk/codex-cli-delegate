@@ -134,7 +134,7 @@ class SDKWorker:
             cli_path=self.job["claude_bin"], cwd=self.job["cwd"],
             model=ct.MODEL, effort=ct.EFFORT,
             system_prompt={"type": "preset", "preset": "claude_code", "append": guidance},
-            tools=ct.ENABLED_TOOLS.split(","),
+            tools=ct.enabled_tools(self.job),
             allowed_tools=list(ct.BASE_ALLOWED_TOOLS),
             permission_mode="dontAsk", settings=str(settings_path), setting_sources=[],
             strict_mcp_config=True, add_dirs=self.job.get("read_dirs") or [],

@@ -17,7 +17,7 @@ from claude_events import Monitor
 MODEL = 'kimi-code/k3-256k'
 RAW_MODEL = 'k3-256k'
 EFFORT = 'max'
-TOOLS = ('Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash')
+from tool_catalog import KIMI_TOOLS as TOOLS, select
 SESSION_RE = re.compile(r'session_[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\Z')
 
 
@@ -27,6 +27,7 @@ def error(code, message):
 
 
 def prepare(explicit, requested_tools, allow_rules):
+    chosen = select('kimi', requested_tools)
     if sys.platform != 'darwin':
         error('kimi_platform', 'Kimi process identity is currently verified on macOS only')
     if allow_rules:
@@ -42,7 +43,6 @@ def prepare(explicit, requested_tools, allow_rules):
     if (not section or not re.search(r'^effort\s*=\s*["\']max["\']\s*(?:#.*)?$', section[1], re.M)
             or not re.search(r'^enabled\s*=\s*true\s*(?:#.*)?$', section[1], re.M)):
         error('kimi_effort_config', 'Existing Kimi [thinking] must have enabled=true and effort="max"; no config was changed')
-    chosen = sorted(set(requested_tools or ('Read', 'Glob', 'Grep')))
     require_hooks(home)
     return dict(kimi_bin=os.path.realpath(binary), kimi_home=str(home), kimi_tools=chosen, kimi_hooks=True)
 

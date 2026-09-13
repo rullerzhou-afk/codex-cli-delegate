@@ -10,10 +10,10 @@ Kimi 同样用 `-p` 非交互调用，配合 `--output-format stream-json`；该
 python3 <script> start --backend kimi --cwd <工作目录> --prompt-file <任务文件>
 ```
 
-默认只有 Read / Glob / Grep，适合审查。要实现代码，逐项列出需要的工具；一旦指定，列表替代默认值：
+默认包含 Read / ReadMediaFile / Glob / Grep，支持文字与媒体审查。要实现代码，逐项列出需要的工具；一旦指定，列表替代默认值：
 
 ```text
-python3 <script> start --backend kimi --cwd <隔离工作目录> --prompt-file <任务文件> --kimi-tool Read --kimi-tool Glob --kimi-tool Grep --kimi-tool Write --kimi-tool Edit --kimi-tool Bash
+python3 <script> start --backend kimi --cwd <隔离工作目录> --prompt-file <任务文件> --kimi-tool Read --kimi-tool ReadMediaFile --kimi-tool Glob --kimi-tool Grep --kimi-tool Write --kimi-tool Edit --kimi-tool Bash
 ```
 
 `Bash` 表示整个 shell 工具可用，不能保证只执行某个测试命令。只在任务已授权执行命令、目录和改动基线明确时启用；若任务需要机器强制的窄命令规则，选支持该规则的 Claude 后端。工具列表不是操作系统沙箱，Read 等也不承诺强制限制文件路径。任务书要明确文件范围，并由 Codex 检查实际修改。不要因 Kimi 选择工具失败自动扩大工具列表。
@@ -76,3 +76,5 @@ hooks 接收端固定使用 `/usr/bin/python3`，仅在 PATH 中另装 Python �
 Kimi 会重写进程标题，不能继续用 argv 标记确认其身份。macOS 适配在直接启动子进程时核实父进程、进程组、用户及可执行路径，并记录内核微秒级创建时间；后续停止/恢复核对创建时间、用户、进程组和路径。元数据无法读取时保守拒绝发送信号，不靠 PID 或标题猜测。
 
 官方参考（版本行为变化时按需查阅）：[Kimi hooks](https://www.kimi.com/code/docs/kimi-code-cli/customization/hooks.html)、[Kimi CLI 参数](https://www.kimi.com/code/docs/kimi-code-cli/reference/kimi-command.html)、[配置覆盖规则](https://www.kimi.com/code/docs/kimi-code-cli/configuration/overrides.html)。
+
+Default read-only tools now include ReadMediaFile in addition to Read/Glob/Grep. Explicit tool lists replace defaults: retain ReadMediaFile for image/video tasks. Optional tools include WebSearch, FetchURL, and TodoList. See [capabilities](tools.md) for host dependencies and the saved-profile limitation on old sessions.

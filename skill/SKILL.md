@@ -19,6 +19,8 @@ Codex prepares the task and independently reviews the result. Prefer the `codex-
 
 ## Constraints
 
+- Select task capabilities without asking the user for tool names. Kimi defaults include ReadMediaFile; explicit implementation tool lists must retain it for visual work. Select native web tools when research is needed. Claude supports NotebookEdit. Check returned `tools` and native evidence; selected tools are not proof of runtime availability. See [tool capabilities](references/tools.md).
+
 - Before tasks that execute scripts, builds, or tests, check only the necessary commands, dependencies, and inputs. Reuse the existing environment; pure reviews do not need a full environment checklist. Resolve preparation within existing authorization.
 - Preserve the user's authorized scope and existing changes. Use isolated worktrees when concurrent edits require them. Keep real jobs in the shared default state root `${CODEX_HOME:-~/.codex}/claude-delegate`; custom state roots are for isolated tests.
 - Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.

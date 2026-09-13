@@ -29,6 +29,10 @@ class DelegateService:
         data = dict(job_id=job["job_id"], backend=job.get("backend", "claude"),
                     phase=job["phase"], round=index, session_id=job.get("session_id"),
                     transport=job.get("transport", "cli"), timeout=job.get("timeout"), replayed=replay)
+        if job.get("backend", "claude") == "claude":
+            data["allow_tools"] = job.get("allow_tools", [])
+        else:
+            data["tools"] = job.get(job["backend"] + "_tools", [])
         if v:
             data["verified"] = {k: v.get(k) for k in
                                 ("ok", "model_verified", "effort_verified", "session_ok", "completion_basis", "reasons")}

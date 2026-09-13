@@ -135,3 +135,9 @@ Created and maintained by Ruller_Lulu. Event mapping, plugin coexistence, and ex
 MIT licensed. See [LICENSE](LICENSE). This is an independent community project, not an official product or endorsement from OpenAI, Anthropic, Moonshot AI, DeepSeek, or OpenCode.
 
 The September 13 task-continuation update passed 173 Python and 11 JavaScript checks with local fixtures, including MCP parameter transport, configuration refresh, preserved session/acceptance history, checkout conflicts, and long/comma command rules. Its real Claude smoke passed the first round, then the provider rejected the second message (`reasoning_extraction`) before executing the newly authorized command. Real execution of the new rule and post-accept continuation therefore remain **NOT TESTED**; the refusal was retained and the test job stopped, without switching model/account/session to retry it.
+
+### Tool capability update (2026-09-13)
+
+Kimi's default read-only selection includes ReadMediaFile for image/video input; WebSearch, FetchURL and TodoList are selectable. Claude supports NotebookEdit and explicitly authorized WebFetch/WebSearch. OpenCode adds webfetch/websearch/todowrite/lsp, with write/apply_patch aliases mapped to edit. CLI and MCP share one catalog; `scripts/delegate.py capabilities` lists it offline. See [capabilities and existing-session limits](skill/references/tools.md).
+
+43 focused local checks passed. One real Kimi 0.42.0 task used ReadMediaFile, returned image content, and correctly identified a synthetic image's colors and shapes without Bash. New web/notebook/LSP tools have not been exercised against their real providers. Existing Kimi sessions retain their saved tool profile; this update does not change it.

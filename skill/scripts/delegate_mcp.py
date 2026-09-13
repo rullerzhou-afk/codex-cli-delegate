@@ -37,7 +37,7 @@ def build_server(service):
                              allow_tools: list[str] | None = None, read_dirs: list[str] | None = None,
                              required_files: list[str] | None = None, timeout: int | None = None,
                              kimi_tools: list[str] | None = None, opencode_tools: list[str] | None = None) -> dict:
-        """Start authorized work. Include scope and acceptance in task. Reuse request_id when retrying an uncertain call. Claude uses Agent SDK; Kimi/OpenCode retain native adapters. timeout=null means no wall-clock kill (default); only set seconds for an explicit limit."""
+        """Start authorized work. Include scope and acceptance in task. Reuse request_id when retrying an uncertain call. Claude uses Agent SDK; Kimi/OpenCode retain native adapters. timeout=null means no wall-clock kill (default); only set seconds for an explicit limit. Kimi defaults include ReadMediaFile; optional WebSearch/FetchURL/TodoList. OpenCode supports webfetch/websearch/todowrite/lsp; edit includes write/apply_patch. Claude web access uses allow_tools: WebFetch(domain:example.com), WebSearch."""
         return await asyncio.to_thread(service.start, owner, request_id, cwd, task, backend, allow_tools,
                                        read_dirs, required_files, timeout, None, kimi_tools, opencode_tools)
 
