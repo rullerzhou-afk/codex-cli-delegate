@@ -9,6 +9,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 ## What it does
 
 - Keeps Claude Agent SDK sessions alive between revision rounds; resumes the saved native session after a worker restart.
+- Adds authorized command rules and reference inputs to the same Claude job, refreshing an idle connection automatically. Accepted jobs can be continued with their prior acceptance preserved. Long paths and commas in command rules are supported.
 - Defaults to no wall-clock termination; explicit runtime limits remain available, and old jobs can remove their limit during same-session recovery.
 - Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode retain their native CLI adapters.
 - Optionally notifies you on macOS after completion or an actionable condition, without waking Codex or polling with a model.
@@ -76,7 +77,7 @@ The notification channel was visibly checked on macOS, separately from an SDK pr
 
 ### Moving or renaming an existing installation
 
-Before an in-place update, back up the skill/configuration and finish or stop running and idle SDK jobs. Create virtual environments at their final location; do not move an existing environment. Keep the shared job state and native sessions in place.
+Before an in-place update, back up the skill/configuration. Existing workers and MCP servers may retain loaded code; for these additive revision changes, use the updated CLI fallback without interrupting unrelated jobs. Dependency or incompatible runtime updates require a planned drain of affected jobs. Create virtual environments at their final location; do not move an existing environment. Keep the shared job state and native sessions in place.
 
 Kimi's managed hooks contain the absolute installation path. Wait for active Kimi rounds to finish and back up your Kimi configuration locally. Keep the old skill directory until migration is complete, then run:
 
@@ -130,3 +131,5 @@ The version compatibility update added five targeted tests. Its 23 OpenCode test
 Created and maintained by Ruller_Lulu. Event mapping, plugin coexistence, and exact-turn observation patterns were developed alongside [clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk); that desktop application is not required.
 
 MIT licensed. See [LICENSE](LICENSE). This is an independent community project, not an official product or endorsement from OpenAI, Anthropic, Moonshot AI, DeepSeek, or OpenCode.
+
+The September 13 task-continuation update passed 173 Python and 11 JavaScript checks with local fixtures, including MCP parameter transport, configuration refresh, preserved session/acceptance history, checkout conflicts, and long/comma command rules. Its real Claude smoke passed the first round, then the provider rejected the second message (`reasoning_extraction`) before executing the newly authorized command. Real execution of the new rule and post-accept continuation therefore remain **NOT TESTED**; the refusal was retained and the test job stopped, without switching model/account/session to retry it.

@@ -113,6 +113,18 @@ class InputsAndRevisions(unittest.TestCase):
         with self.assertRaises(ct.CliError):ct.read_access(str(self.cwd),[],[str(self.cwd/'missing')])
         (self.cwd/'linked').symlink_to(self.file)
         with self.assertRaises(ct.CliError):ct.read_access(str(self.cwd),[],[str(self.cwd/'linked')])
+    def test_long_comma_rules_are_kept_as_json_array_entries(self):
+        rule = 'Bash(python3 /' + 'long/path/' * 30 + 'file,one.py*)'
+        self.assertEqual(ct.validate_allow_rules([rule]), [rule])
+        job = dict(cwd=str(self.cwd), allow_tools=[rule], claude_bin='claude', session_id='s', job_id='j')
+        settings = hook_settings('script', 'state', job, dict(round=0, run_token='t'))
+        self.assertEqual(settings['permissions']['allow'][-1], rule)
+        argv = ct.build_claude_argv(job, 'token', False)
+        self.assertEqual(argv[argv.index('--allowed-tools') + 1], 'Read,Glob,Grep')
+        for invalid in ('Bash(*)', 'Bash(*python*)', 'Bash(python3\x00x)', 'Bash(python3\nother)'):
+            with self.assertRaises(ct.CliError):
+                ct.validate_allow_rules([invalid])
+
     def test_additional_directories_do_not_get_blanket_edit_allow(self):
         job=dict(cwd=str(self.cwd),read_dirs=[str(self.refs)],claude_bin='claude',session_id='s',allow_tools=[],job_id='j')
         argv=ct.build_claude_argv(job,'token',False)

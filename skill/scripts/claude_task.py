@@ -116,7 +116,7 @@ RECOVER_PHASES = frozenset((PHASE_FAILED, PHASE_INTERRUPTED, PHASE_NEEDS_ATTENTI
 
 UUID_RE = re.compile(r"\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 OWNER_RE = re.compile(r"\A[A-Za-z0-9._:@+\-]{1,200}\Z")
-ALLOW_RULE_RE = re.compile(r"\A([A-Za-z][A-Za-z0-9_]{0,31})(?:\((.{1,200})\))?\Z", re.S)
+ALLOW_RULE_RE = re.compile(r"\A([A-Za-z][A-Za-z0-9_]{0,31})(?:\((.+)\))?\Z", re.S)
 
 # Claude Code marks a locally generated stand-in turn (a request that never
 # reached the model) with a synthetic model name.  That metadata is the only
@@ -550,7 +550,7 @@ def validate_allow_rules(rules):
         rule = str(raw).strip()
         if not rule:
             continue
-        if len(rule) > 200 or any(ch in rule for ch in "\n\r\t,"):
+        if any(ch in rule for ch in "\n\r\t\x00"):
             raise CliError("bad_allow_tool", "invalid --allow-tool rule: %r" % raw)
         match = ALLOW_RULE_RE.match(rule)
         if not match:
@@ -748,17 +748,19 @@ def build_claude_argv(job, run_token, resume):
         "--tools",
         ENABLED_TOOLS,
         "--allowed-tools",
-        ",".join(list(BASE_ALLOWED_TOOLS) + list(job.get("allow_tools") or [])),
+        ",".join(BASE_ALLOWED_TOOLS),
     ]
     for directory in job.get("read_dirs") or []:
         argv += ["--add-dir", directory]
-    if job.get("required_files"):
+    if job.get("required_files") or job.get("allow_tools"):
         guidance = ("Required task inputs were checked before launch. Read their actual contents; "
                     "the manifest is not a substitute for reading. Use Read with explicit offset/limit "
                     "for large files and continue through needed ranges; a truncated excerpt is not the full file. "
                     "Use file tools for reading, not unapproved shell commands. Additional --add-dir directories "
                     "are task reference inputs; write only within the primary working directory unless the user authorized more.\n"
-                    + json.dumps(job["required_files"], ensure_ascii=False))
+                    + json.dumps(dict(required_files=job.get("required_files", []),
+                                      allow_tools=job.get("allow_tools", [])), ensure_ascii=False)
+                    + "\nUse the authorized command forms above instead of guessing alternative spellings.")
         argv += ["--append-system-prompt", guidance]
     if resume:
         argv += ["--resume", job["session_id"]]
@@ -1612,6 +1614,21 @@ def cmd_start(ctx, args):
 
 
 def cmd_revise(ctx, args):
+    try:
+        return revise_transaction(ctx, args)
+    except CliError as exc:
+        if exc.code != "sdk_scope_changed":
+            raise
+        # Drain only the already-idle connection, outside the state lock. The
+        # second transaction rechecks the round, ownership and checkout lock.
+        from claude_sdk_backend import close_idle
+        close_idle(ctx, args.job, exc.extra["round"])
+        refreshed = argparse.Namespace(**vars(args))
+        refreshed.expected_round = exc.extra["round"]
+        return revise_transaction(ctx, refreshed)
+
+
+def revise_transaction(ctx, args):
     prompt = validate_input_file(args.prompt_file, "--prompt-file", PROMPT_MAX_BYTES)
     requested_timeout = getattr(args, "timeout", "inherit")
     if requested_timeout != "inherit":
@@ -1627,8 +1644,6 @@ def cmd_revise(ctx, args):
 
         if phase in BUSY_PHASES:
             raise CliError("busy", "job is still running (phase=%s); wait or stop it first" % phase, phase=phase)
-        if phase == PHASE_ACCEPTED:
-            raise CliError("closed", "job was accepted; start a new job instead", phase=phase)
         if phase in RECOVER_PHASES:
             if not args.recover:
                 raise CliError(
@@ -1636,7 +1651,7 @@ def cmd_revise(ctx, args):
                     "phase=%s requires --recover and a prompt written after inspecting evidence" % phase,
                     phase=phase,
                 )
-        elif phase != PHASE_AWAITING_REVIEW:
+        elif phase not in (PHASE_AWAITING_REVIEW, PHASE_ACCEPTED):
             raise CliError("bad_phase", "cannot revise from phase=%s" % phase, phase=phase)
 
         # --recover acknowledges an inspected, finished task; it is never
@@ -1662,12 +1677,13 @@ def cmd_revise(ctx, args):
                 max_revisions=limit,
             )
 
+        additions = validate_allow_rules(getattr(args, "allow_tool", None))
+        if additions and job.get("backend", "claude") != "claude":
+            raise CliError("wrong_backend", "Claude permission rules require the Claude backend")
+        allow_tools = list(dict.fromkeys((job.get("allow_tools") or []) + additions))
         dirs = list(dict.fromkeys((job.get("read_dirs") or []) + (getattr(args, "read_dir", None) or [])))
         inputs = list(dict.fromkeys([v["path"] for v in job.get("required_files") or []] + (getattr(args, "require_file", None) or [])))
         read_dirs, required_files = read_access(job["cwd"], dirs, inputs)
-        if (job.get("transport") == "sdk" and identity_state(job.get("sdk_worker")) == "alive"
-                and read_dirs != job.get("read_dirs", [])):
-            raise CliError("sdk_scope_changed", "stop and recover the same session before changing reference directories")
         if job.get("backend", "claude") == "claude":
             quota_gate(ctx, job.get("claude_config_dir"), refresh=True)
         elif read_dirs or required_files:
@@ -1688,6 +1704,11 @@ def cmd_revise(ctx, args):
             from kimi_backend import require_hooks
             require_hooks(job["kimi_home"])
             job["kimi_hooks"] = True
+
+        if (job.get("transport") == "sdk" and identity_state(job.get("sdk_worker")) == "alive"
+                and (read_dirs != job.get("read_dirs", []) or allow_tools != job.get("allow_tools", []))):
+            raise CliError("sdk_scope_changed", "refreshing idle connection for authorized additions",
+                           round=job["current_round"])
 
         job_root = ctx.job_dir(job["job_id"])
         index = len(job["rounds"])
@@ -1714,11 +1735,20 @@ def cmd_revise(ctx, args):
         record["timeout"] = job.get("timeout")
         record["recovered_from"] = phase if args.recover else None
         record["request"] = getattr(args, "request", None)
+        current_round(job)[1].setdefault("access", dict(allow_tools=job.get("allow_tools", []),
+                                                     read_dirs=job.get("read_dirs", []),
+                                                     required_files=job.get("required_files", [])))
         job["rounds"].append(record)
         job["current_round"] = index
         job["revisions_used"] = used + 1
         job["max_revisions"] = limit
+        current_round(job)[1]["access"] = dict(allow_tools=allow_tools, read_dirs=read_dirs,
+                                                 required_files=required_files)
+        job["allow_tools"] = allow_tools
         job["read_dirs"], job["required_files"] = read_dirs, required_files
+        if job.get("accepted"):
+            job.setdefault("acceptance_history", []).append(job.pop("accepted"))
+        record["continued_from"] = phase
         job["phase"] = PHASE_STARTING
         job["process_state"] = "starting"
         job["stop_requested"] = False
@@ -2504,6 +2534,8 @@ def build_parser():
     revise.add_argument("--timeout", default="inherit", help="keep existing limit unless set to seconds or unlimited")
     revise.add_argument("--recover", action="store_true", help="required for interrupted/failed/stopped jobs")
     revise.add_argument("--max-revisions", default=None, help="change this job's cap, including unlimited for legacy jobs")
+    revise.add_argument("--allow-tool", action="append", default=[], help="add an authorized command rule to this session")
+    revise.add_argument("--expected-round", type=int, default=None, help="guard the round being continued")
     revise.add_argument("--read-dir", action="append", default=[], help="add an authorized reference directory")
     revise.add_argument("--require-file", action="append", default=[], help="add a required input file")
 

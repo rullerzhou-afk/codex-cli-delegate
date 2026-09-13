@@ -125,7 +125,8 @@ class DelegateService:
 
         return self.dispatch(owner, request_id, "start", spec, launch)
 
-    def revise(self, owner, request_id, job_id, expected_round, task, recover=False, timeout="inherit"):
+    def revise(self, owner, request_id, job_id, expected_round, task, recover=False, timeout="inherit",
+               allow_tools=None, read_dirs=None, required_files=None):
         if not isinstance(task, str) or not task.strip() or len(task.encode()) > ct.PROMPT_MAX_BYTES:
             raise ct.CliError("bad_task", "provide a nonempty bounded correction")
         spec = dict(job_id=job_id, expected_round=expected_round, task=task, recover=recover)
@@ -134,10 +135,15 @@ class DelegateService:
             timeout = ct.validate_timeout(timeout)
             spec["timeout"] = timeout
 
+        for key, value in (("allow_tools", allow_tools), ("read_dirs", read_dirs), ("required_files", required_files)):
+            if value:
+                spec[key] = value
+
         def launch(ctx, request, prompt):
             ct.atomic_write_bytes(str(prompt), task.encode())
             return ct.cmd_revise(ctx, SimpleNamespace(job=job_id, prompt_file=str(prompt), recover=recover,
-                                                      expected_round=expected_round, request=request, timeout=timeout))
+                                                      expected_round=expected_round, request=request, timeout=timeout,
+                                                      allow_tool=allow_tools, read_dir=read_dirs, require_file=required_files))
 
         return self.dispatch(owner, request_id, "revise", spec, launch)
 

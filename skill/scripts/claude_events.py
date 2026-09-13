@@ -20,7 +20,7 @@ def hook_settings(script, state_dir, job, record):
     # by Claude. Absolute rules need two leading slashes; escape glob literals.
     cwd = job.get('cwd') or os.getcwd()
     literal = ''.join('\\' + ch if ch in '\\*?[]!#' else ch for ch in cwd.rstrip('/'))
-    return {'permissions': {'allow': ['Edit(/' + literal + '/**)']},
+    return {'permissions': {'allow': ['Edit(/' + literal + '/**)'] + list(job.get('allow_tools') or [])},
             'hooks': {event: [{'matcher': 'idle_prompt' if event == 'Notification' else '',
                               'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}]
                       for event in ('Stop', 'StopFailure', 'PostToolUseFailure', 'Notification')}}

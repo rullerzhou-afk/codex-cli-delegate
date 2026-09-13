@@ -70,3 +70,11 @@ python3 <absolute-skill-path>/scripts/delegate.py stop <job-id>
 After interruption, inspect the original job before dispatching again. If it is running, resume waiting; if handed off, continue review. For orphaned processes, uncertain identity, missing records, or eligible evidence-only revalidation, read [recovery](recovery.md). Stop only verified owned processes; preserve evidence and work files. Do not present unsaved sessions as resumable.
 
 Report the result, actual verified profile, independent checks, remaining limitations, and job/evidence locations. Runtime evidence and credentials stay local; publishing this tool does not authorize uploading task records.
+
+## Additions and post-accept continuation
+
+Claude `revise` accepts additional `--allow-tool`, `--read-dir`, and `--require-file` options. Use `--expected-round` to bind the update to the inspected round. Authorized configuration changes automatically refresh the idle SDK connection and resume the same session. Required-file additions are included in the next prompt. Rules are stored as JSON array entries, so long paths and commas are preserved.
+
+Accepted jobs can be revised directly: the runner rechecks checkout occupancy, archives the prior acceptance, and requires independent review of the new round. Existing authorization covers routine preparation of command spellings and reference paths; request a new decision only when the actual action exceeds that authorization. Do not inherit unrelated global permissions or hooks to solve a missing task rule.
+
+If the running MCP still has the old schema, use the installed virtual environment's Python with `scripts/delegate.py revise` and the same owner/job/round. There is no need to create another job or interrupt unrelated work.

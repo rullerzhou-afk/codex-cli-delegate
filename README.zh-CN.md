@@ -52,3 +52,9 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 作者 Ruller_Lulu。部分事件处理和 hook 共存设计与 [clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk) 一同演进；使用本 skill 不依赖桌宠应用。
 
 采用 [MIT 许可证](LICENSE)。这是独立社区项目，与所支持的模型及 CLI 厂商没有官方从属关系。
+
+### 2026-09-13：原任务补授权、补资料与验收后续接
+
+Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要时自动刷新空闲 SDK 连接并保留原 session。已验收任务可以继续修改，旧验收记录保留，新一轮重新检查目录占用并验收。命令规则改用 JSON 数组传递，支持长路径和逗号。旧 MCP 可用安装目录虚拟环境运行 `scripts/delegate.py revise`，无需重派任务。
+
+本次 173 项 Python、11 项 JavaScript 本地检查通过。真实 Claude 测试第一轮通过，第二轮在执行新增授权命令前被服务端以 `reasoning_extraction` 拒绝；新增授权真实执行与验收后续接标为 **NOT TESTED**，没有用模拟测试冒充真实通过，也没有换模型、账号或会话重试拒绝。日常用户/项目授权和自定义 hooks 仍不自动继承，配套 SDK 依赖保持固定安装。

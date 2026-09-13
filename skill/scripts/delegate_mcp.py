@@ -43,9 +43,12 @@ def build_server(service):
 
     @expose()
     async def delegate_revise(owner: str, request_id: str, job_id: str, expected_round: int,
-                              task: str, recover: bool = False, timeout: int | str | None = "inherit") -> dict:
-        """Continue the same native session after review. recover acknowledges inspected failure/interruption; it never authorizes duplicate active work. timeout defaults to inherit; null removes an old limit, integer sets seconds."""
-        return await asyncio.to_thread(service.revise, owner, request_id, job_id, expected_round, task, recover, timeout)
+                              task: str, recover: bool = False, timeout: int | str | None = "inherit",
+                              allow_tools: list[str] | None = None, read_dirs: list[str] | None = None,
+                              required_files: list[str] | None = None) -> dict:
+        """Continue the same native session, including accepted jobs. Authorized command/reference additions are applied automatically; an idle connection may refresh while retaining the session. recover acknowledges inspected failure/interruption; it never authorizes duplicate active work. timeout defaults to inherit; null removes an old limit, integer sets seconds."""
+        return await asyncio.to_thread(service.revise, owner, request_id, job_id, expected_round, task, recover, timeout,
+                                       allow_tools, read_dirs, required_files)
 
     @expose(True)
     async def delegate_status(owner: str, job_id: str, details: bool = False) -> dict:

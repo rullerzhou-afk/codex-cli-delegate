@@ -135,7 +135,7 @@ class SDKWorker:
             model=ct.MODEL, effort=ct.EFFORT,
             system_prompt={"type": "preset", "preset": "claude_code", "append": guidance},
             tools=ct.ENABLED_TOOLS.split(","),
-            allowed_tools=list(ct.BASE_ALLOWED_TOOLS) + self.job["allow_tools"],
+            allowed_tools=list(ct.BASE_ALLOWED_TOOLS),
             permission_mode="dontAsk", settings=str(settings_path), setting_sources=[],
             strict_mcp_config=True, add_dirs=self.job.get("read_dirs") or [],
             env=dict(ct.CHILD_ENV_OVERRIDES),
@@ -235,6 +235,11 @@ class SDKWorker:
 
     async def execute_round(self):
         prompt = (self.root / self.active["prompt"]).read_text()
+        # Include current policy each round, including newly added inputs. Do
+        # not make Claude guess which spelling a task-scoped rule permits.
+        prompt += "\n\nDelegation execution context (use these authorized command forms; do not guess alternatives):\n" + json.dumps(
+            dict(cwd=self.job["cwd"], allow_tools=self.job.get("allow_tools", []),
+                 required_files=self.job.get("required_files", [])), ensure_ascii=False)
         try:
             async with asyncio.timeout(self.job["timeout"]):
                 await self.client.query(prompt, session_id=self.job["session_id"])

@@ -47,10 +47,11 @@ for line in sys.stdin:
         continue
     if message["type"] != "user":
         continue
-    task = json.loads(message["message"]["content"])
+    task = json.JSONDecoder().raw_decode(message["message"]["content"])[0]
     with (root / "calls.ndjson").open("a") as f:
         f.write(json.dumps({"pid": os.getpid(), "session": session, "tag": task.get("tag"),
-                            "resume": arg("--resume")}) + "\n")
+                            "resume": arg("--resume"), "settings": json.loads(Path(arg("--settings")).read_text()),
+                            "prompt": message["message"]["content"]}) + "\n")
     if task.get("delay"):
         time.sleep(task["delay"])
     emit({"type": "system", "subtype": "init", "session_id": session, "model": arg("--model")})

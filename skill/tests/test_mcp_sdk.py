@@ -79,6 +79,73 @@ class SDKLifecycle(unittest.TestCase):
                                      evidence_dir=evidence["directory"])
         self.assertEqual(result["phase"], "accepted")
 
+    def test_add_permissions_and_references_then_reopen_accepted_session(self):
+        job = self.start(tag="before")["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        refs = self.root / "reference, files"
+        refs.mkdir()
+        reference = refs / "input.txt"
+        reference.write_text("new authorized reference")
+        rule = "Bash(python3 /" + "long-directory/" * 20 + "script,one.py*)"
+        revised = self.service.revise(self.owner, "add-access", job, 0, json.dumps({"tag": "after"}),
+            allow_tools=[rule], read_dirs=[str(refs)], required_files=[str(reference)])
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        replay = self.service.revise(self.owner, "add-access", job, 0, json.dumps({"tag": "after"}),
+            allow_tools=[rule], read_dirs=[str(refs)], required_files=[str(reference)])
+        self.assertTrue(replay["replayed"])
+        with self.assertRaises(ct.CliError):
+            self.service.revise(self.owner, "add-access", job, 0, json.dumps({"tag": "after"}), allow_tools=["Bash(npm test*)"])
+        calls = [json.loads(s) for s in (self.home / "calls.ndjson").read_text().splitlines()]
+        self.assertEqual(len(calls), 2)
+        self.assertNotEqual(calls[0]["pid"], calls[1]["pid"])
+        self.assertEqual(calls[0]["session"], calls[1]["session"])
+        self.assertIn(rule, calls[1]["settings"]["permissions"]["allow"])
+        self.assertIn(str(reference), calls[1]["prompt"])
+        self.assertIn(rule, calls[1]["prompt"])
+        self.service.accept(self.owner, job, 1, "Verified fixture permission and input handoff.")
+        self.service.revise(self.owner, "post-accept", job, 1, json.dumps({"tag": "one-more-change"}))
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        saved = self.service.context(self.owner).load_owned(job)
+        self.assertEqual(saved["acceptance_history"][0]["round"], 1)
+        self.assertNotIn("accepted", saved)
+        self.assertEqual(saved["session_id"], revised["session_id"])
+        self.assertEqual(saved["rounds"][0]["access"]["allow_tools"], [])
+        self.assertEqual(saved["rounds"][1]["access"]["allow_tools"], [rule])
+        self.service.accept(self.owner, job, 2, "Verified continued native fixture session.")
+
+    def test_invalid_additions_leave_idle_session_untouched(self):
+        job = self.start(tag="before")["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        before = self.service.context(self.owner).load_owned(job)
+        for params in ({"allow_tools": ["Bash(*)"]}, {"required_files": [str(self.cwd / "missing")]},
+                       {"allow_tools": ["Bash(npm test*)"], "expected_round": 9}):
+            options = dict(expected_round=0, task=json.dumps({"tag": "no"}))
+            options.update(params)
+            with self.assertRaises(ct.CliError):
+                self.service.revise(self.owner, "invalid-" + str(len(str(params))), job, **options)
+        after = self.service.context(self.owner).load_owned(job)
+        self.assertEqual(after["current_round"], 0)
+        self.assertEqual(after["sdk_worker"], before["sdk_worker"])
+        self.assertFalse(after.get("sdk_closing"))
+        self.assertEqual(ct.identity_state(after["sdk_worker"]), "alive")
+
+    def test_reopen_checks_checkout_occupancy_and_round(self):
+        job = self.start(tag="complete")["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        self.service.accept(self.owner, job, 0, "Checked fixture completion.")
+        other = self.start(request="occupy-checkout", tag="other")["job_id"]
+        self.assertEqual(self.settle(other)["phase"], "awaiting_review")
+        with self.assertRaises(ct.CliError) as error:
+            self.service.revise(self.owner, "cannot-overlap", job, 0, json.dumps({"tag": "later"}))
+        self.assertEqual(error.exception.code, "checkout_conflict")
+        self.assertEqual(self.service.read(self.owner, job)["phase"], "accepted")
+        self.service.accept(self.owner, other, 0, "Checked second fixture completion.")
+        with self.assertRaises(ct.CliError) as error:
+            self.service.revise(self.owner, "stale", job, 9, json.dumps({"tag": "later"}))
+        self.assertEqual(error.exception.code, "stale_round")
+        self.service.revise(self.owner, "now-continue", job, 0, json.dumps({"tag": "later"}))
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+
     def test_replay_survives_service_restart_and_collisions_fail(self):
         with ThreadPoolExecutor(2) as pool:
             replies = list(pool.map(lambda _: self.start(tag="once"), range(2)))
@@ -231,11 +298,24 @@ class MCPProtocol(unittest.IsolatedAsyncioTestCase):
                             if data["phase"] not in ct.BUSY_PHASES:
                                 break
                         self.assertEqual(data["phase"], "awaiting_review", data)
+                        revised = await client.call_tool("delegate_revise", dict(owner="wire-owner", request_id="wire-revise",
+                            job_id=job, expected_round=0, task=json.dumps({"tag": "wire-addition"}),
+                            allow_tools=["Bash(python3 /tmp/fixture,only.py)"], read_dirs=[str(root)], required_files=[]))
+                        self.assertFalse(revised.is_error, revised)
+                        for _ in range(12):
+                            result = await client.call_tool("delegate_wait", dict(owner="wire-owner", job_id=job,
+                                                                                cursor=cursor, timeout=5))
+                            self.assertFalse(result.is_error, result)
+                            data = result.structured_content
+                            cursor = data["cursor"]
+                            if data["phase"] not in ct.BUSY_PHASES:
+                                break
+                        self.assertEqual(data["phase"], "awaiting_review", data)
                         accepted = await client.call_tool("delegate_accept", dict(owner="wire-owner", job_id=job,
-                            expected_round=0, notes="Checked the original job, one native invocation, and successful SDK verification."))
+                            expected_round=1, notes="Checked the original job, one native invocation, and successful SDK verification."))
                         self.assertFalse(accepted.is_error, accepted)
                         self.assertEqual(accepted.structured_content["phase"], "accepted")
-                self.assertEqual(len((account / "calls.ndjson").read_text().splitlines()), 1)
+                self.assertEqual(len((account / "calls.ndjson").read_text().splitlines()), 2)
             finally:
                 DelegateService(str(root / "state"), str(fake)).stop("wire-owner", job)
 
