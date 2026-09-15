@@ -12,11 +12,14 @@ the categories distinct: passing one does not imply any other.
   reservation, request deduplication, quota pausing, hooks, launch failure,
   timeout, schema compatibility/rejection, and evidence sealing.
 - **Command:** `python run_tests.py` (see [CONTRACTS.md](CONTRACTS.md#tests)).
-- **Current result:** 234 Python and 11 JavaScript tests pass locally against a
+- **Current result:** 240 Python and 11 JavaScript tests pass locally against a
   fixture-only environment. No paid model is called.
+- **Policy text:** a documentation check keeps the delegation triggers and
+  co-installation precedence present in the Skill and READMEs. It is a text
+  check, not a routing test.
 - **Does not prove:** real provider behavior, model identity/effort enforcement
   against a live provider, OS sandboxing, GUI visibility, Linux/Windows
-  execution, or quota accounting.
+  execution, quota accounting, or stable route selection.
 
 ## 2. Real-provider evidence
 

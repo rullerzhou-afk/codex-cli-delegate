@@ -1,11 +1,19 @@
 ---
 name: codex-cli-delegate
-description: Delegate authorized coding and review tasks to Claude Code, Kimi Code, or OpenCode through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance. Also tracks exact remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, or OpenCode through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
 
 Codex prepares the task and independently reviews the result. Prefer the `codex-cli-delegate` MCP; Claude uses a persistent Agent SDK connection. For setup and protocol details, read [MCP and SDK](references/mcp.md). If MCP is unavailable or you are diagnosing an older job, use the retained [CLI workflow](references/cli-workflow.md) and `scripts/delegate.py`. Missing tools are not a reason to dispatch the same work again.
+
+## When to delegate
+
+This Skill acts only on an explicit external route. A new external job requires both an explicit request for Claude, Kimi, or OpenCode, by name or by invoking this Skill, and one whole coherent responsibility (investigation, implementation, focused verification, and necessary documentation only when those parts are tightly coupled) that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this Skill already started, or recovering it after interruption or context loss, are allowed resolution paths that do not need a new explicit request.
+
+Do not start a new external job for native-worker-only requests, explicit solo work, casual explanations, tiny work, or work that is already nearly complete. Use one worker for the coupled responsibility, forward new constraints promptly, and continue the same worker and job for rework instead of creating phase-named jobs. Independent Codex acceptance stays mandatory; do not add a second external reviewer by default, and choose adversarial review only when the user requests it or risk requires it.
+
+Worktrees and tool allowlists are specific controls, not an operating-system sandbox. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it must still recover and resolve jobs its tools previously started; a host routing skill may select a native worker, which this repository neither observes nor controls. Once this Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account. See [external delegation policy](references/delegation-policy.md).
 
 ## MCP workflow
 
@@ -33,6 +41,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 
 ## Backend references
 
+- [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
 - [Kimi](references/kimi.md) and [OpenCode](references/opencode.md): native CLI adapters, tool selection, configuration, and existing hooks. Their Bash permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented. Pi is not implemented.
 - [Remote Windows Codex](references/remote-codex.md): observe an exact existing remote session/turn, then verify its artifacts. This is separate from local delegation and uses `scripts/remote_codex.py`.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.

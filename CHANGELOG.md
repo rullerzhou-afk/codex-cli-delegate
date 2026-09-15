@@ -4,6 +4,20 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Phase 1: tighten external-delegation policy
+
+- Added the canonical [external delegation policy](skill/references/delegation-policy.md):
+  positive and negative triggers, one-worker continuation, independent
+  acceptance without a default second reviewer, controls-not-an-OS-sandbox, and
+  co-installation precedence.
+- Updated the Skill frontmatter and main instructions, the retained CLI workflow
+  reference, README, and README.zh-CN together for user-visible policy.
+- Added durable policy-text contract checks. They keep the trigger and
+  precedence text present; they do not prove stable model routing or quota
+  savings, and they cannot verify the unavailable-route behavior end to end.
+- Current aggregate: 240 Python + 11 JavaScript tests pass locally with
+  fixtures (no paid model call).
+
 ## Unreleased — Phase 0: freeze the observable contract
 
 - Separate job-state (`codex-cli-delegate/job-state`) and evidence-manifest
@@ -20,8 +34,6 @@ command that produces it, see [Tests](README.md#tests).
   configured or tested by this repo-only change. Added
   [validation boundaries](docs/VALIDATION.md) and
   [public contracts](docs/CONTRACTS.md).
-- Current aggregate: 234 Python + 11 JavaScript tests pass locally with
-  fixtures (no paid model call).
 
 ## Tool capability update (2026-09-13)
 

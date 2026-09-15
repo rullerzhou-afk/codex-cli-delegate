@@ -6,6 +6,8 @@ This is a community skill, not an official integration from any CLI or model pro
 
 ## Select the route
 
+Read [external delegation policy](delegation-policy.md) first. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it still recovers and resolves jobs it previously started. Once it starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation.
+
 - Claude: read [quota and required inputs](quota-and-inputs.md). Uses per-round restricted settings and hooks.
 - Kimi: read [Kimi setup and native evidence](kimi.md). Requires existing thinking configuration and three explicitly installed managed hooks. Normal dispatch checks them without rewriting user configuration.
 - OpenCode: read [OpenCode tools and hooks](opencode.md). Adds a per-process plugin while preserving existing plugins. Default profile is read-only.

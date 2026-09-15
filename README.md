@@ -20,6 +20,14 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 
 `awaiting_review` means the execution evidence passed checks. Codex still needs to inspect the actual work before `accept`.
 
+## When to delegate
+
+This skill acts only on an explicit external route; a host routing skill still owns native-worker decisions. A new external job requires both an explicit request for Claude, Kimi, or OpenCode and one whole coherent responsibility — investigation, implementation, focused verification, and only the documentation that is tightly coupled — that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this skill started, or recovering it after interruption, are allowed resolution paths that do not need a new explicit request.
+
+Do not start a new external job for native-worker-only requests, explicit solo work, casual explanations, tiny work, or work that is already nearly complete. Use one worker, forward new constraints promptly, and continue the same worker and job for rework instead of creating phase-named jobs. Independent Codex acceptance is mandatory; do not add a second external reviewer by default, and choose adversarial review only when you request it or the risk requires it. Worktrees and tool allowlists are specific controls, not an operating-system sandbox.
+
+Without an explicit external route this skill does not claim routing precedence and does not start a new external job, but it still recovers and resolves jobs its tools previously started. Once it starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account. See [the delegation policy](skill/references/delegation-policy.md).
+
 ## Supported scope
 
 | Capability | Current scope |
@@ -114,7 +122,7 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **234 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **240 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the Phase 2 refactor.
 
