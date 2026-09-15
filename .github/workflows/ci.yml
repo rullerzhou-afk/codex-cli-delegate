@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  python-3.12-fixtures:
+  python-3-12-fixtures:
     # Portable fixture coverage. Process-identity modules are excluded here and
     # run in macos-process-identity instead; this job states that explicitly
     # rather than implying the excluded modules passed.
