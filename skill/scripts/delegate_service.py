@@ -1,7 +1,5 @@
 """Small application API shared by the MCP entrypoint and integration tests."""
 import asyncio
-import fcntl
-import hashlib
 import json
 import os
 import time
@@ -76,34 +74,14 @@ class DelegateService:
 
         Intent is stored before dispatch; the exact receipt also lives in the
         committed round. A crashed request never silently starts a second run.
+        The transaction lives in delegate_ownership; this stays a thin adapter.
         """
         if not isinstance(request_id, str) or not 1 <= len(request_id) <= 200:
             raise ct.CliError("bad_request_id", "provide a stable request_id of 1–200 characters")
+        from delegate_ownership import dispatch_request
         ctx = self.context(owner)
-        key = hashlib.sha256((owner + "\0" + request_id).encode()).hexdigest()
-        digest = hashlib.sha256(json.dumps([operation, spec], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-        request = {"key": key, "sha256": digest, "operation": operation}
-        directory = Path(ct.ensure_dir(os.path.join(ctx.state_dir, "requests")))
-        fd = os.open(str(directory / (key + ".lock")), os.O_CREAT | os.O_RDWR, ct.FILE_MODE)
-        with os.fdopen(fd, "a") as lock:
-            fcntl.flock(lock, fcntl.LOCK_EX)
-            receipt = directory / (key + ".json")
-            if receipt.exists() and ct.read_json(str(receipt))["sha256"] != digest:
-                raise ct.CliError("request_conflict", "request_id was already used with different inputs")
-            with ct.StateLock(ctx.state_dir):
-                for job in ctx.all_jobs():
-                    if job.get("owner") != owner:
-                        continue
-                    for record in job.get("rounds") or []:
-                        existing = record.get("request") or {}
-                        if existing.get("key") == key:
-                            if existing.get("sha256") != digest:
-                                raise ct.CliError("request_conflict", "request_id was already used with different inputs")
-                            job, _ = ct.reconcile(ctx, job)
-                            return self.compact(ctx, job, replay=True)
-            ct.write_json(str(receipt), request)
-            result = callback(ctx, request, directory / (key + ".md"))
-            return self.read(owner, result["job_id"])
+        return dispatch_request(ctx, owner, request_id, operation, spec, callback,
+                                self.compact, self.read)
 
     def start(self, owner, request_id, cwd, task, backend="claude", allow_tools=None,
               read_dirs=None, required_files=None, timeout=None, max_revisions=None,

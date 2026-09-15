@@ -26,11 +26,13 @@ from unittest.mock import patch
 SCRIPT = Path(os.environ["DELEGATE_SCRIPT"]).resolve()
 sys.path.insert(0, str(SCRIPT.parent))
 
-spec = importlib.util.spec_from_file_location("delegate_under_test", SCRIPT)
-ct = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ct)
+# Import the canonical module: job-state schema/validation moved into
+# delegate_job_store, which reads its constants from this module instance, so a
+# second under-test copy would raise a different CliError class.
+import claude_task as ct  # noqa: E402
 
 import review_evidence as evidence  # noqa: E402
+import delegate_job_store as store  # noqa: E402
 from delegate_service import DelegateService  # noqa: E402
 
 FIXTURES = Path(__file__).with_name("fixtures")
@@ -165,14 +167,14 @@ class JobStateSchema(unittest.TestCase):
         job["schema"] = 2
         job.pop("schema_namespace")
         path.write_text(json.dumps(job))
-        saved = ct.JOB_STATE_SUPPORTED_VERSIONS
-        ct.JOB_STATE_SUPPORTED_VERSIONS = frozenset((1, 2))
+        saved = store.JOB_STATE_SUPPORTED_VERSIONS
+        store.JOB_STATE_SUPPORTED_VERSIONS = frozenset((1, 2))
         try:
             with self.assertRaises(ct.CliError) as error:
                 self.ctx.load("88888888-8888-8888-8888-888888888888")
             self.assertEqual(error.exception.code, "unsupported_schema")
         finally:
-            ct.JOB_STATE_SUPPORTED_VERSIONS = saved
+            store.JOB_STATE_SUPPORTED_VERSIONS = saved
 
     def test_registered_migration_applies_on_read_without_rewrite(self):
         path = self.install(CURRENT_JOB, "55555555-5555-5555-5555-555555555555")
@@ -184,10 +186,10 @@ class JobStateSchema(unittest.TestCase):
             job["migrated_field"] = "from-v1"
             return job
 
-        saved_migrations = ct.JOB_STATE_MIGRATIONS
-        saved_versions = ct.JOB_STATE_SUPPORTED_VERSIONS
-        ct.JOB_STATE_MIGRATIONS = {1: migrate}
-        ct.JOB_STATE_SUPPORTED_VERSIONS = frozenset((2,))
+        saved_migrations = store.JOB_STATE_MIGRATIONS
+        saved_versions = store.JOB_STATE_SUPPORTED_VERSIONS
+        store.JOB_STATE_MIGRATIONS = {1: migrate}
+        store.JOB_STATE_SUPPORTED_VERSIONS = frozenset((2,))
         try:
             before = path.read_bytes()
             job = self.ctx.load("55555555-5555-5555-5555-555555555555")
@@ -195,8 +197,8 @@ class JobStateSchema(unittest.TestCase):
             self.assertEqual(job["migrated_field"], "from-v1")
             self.assertEqual(path.read_bytes(), before)
         finally:
-            ct.JOB_STATE_MIGRATIONS = saved_migrations
-            ct.JOB_STATE_SUPPORTED_VERSIONS = saved_versions
+            store.JOB_STATE_MIGRATIONS = saved_migrations
+            store.JOB_STATE_SUPPORTED_VERSIONS = saved_versions
 
     def test_foreign_namespace_is_rejected_before_migration(self):
         called = []
@@ -205,42 +207,42 @@ class JobStateSchema(unittest.TestCase):
             called.append(True)
             return dict(job, schema=2)
 
-        saved_migrations = ct.JOB_STATE_MIGRATIONS
+        saved_migrations = store.JOB_STATE_MIGRATIONS
         try:
-            ct.JOB_STATE_MIGRATIONS = {1: migrate}
+            store.JOB_STATE_MIGRATIONS = {1: migrate}
             with self.assertRaises(ct.CliError) as error:
                 ct.migrate_job_state({"schema": 1, "schema_namespace": "other/job-state"})
             self.assertEqual(error.exception.code, "unsupported_schema")
             self.assertEqual(called, [])
         finally:
-            ct.JOB_STATE_MIGRATIONS = saved_migrations
+            store.JOB_STATE_MIGRATIONS = saved_migrations
 
     def test_migration_must_return_object_and_advance_one_version(self):
-        saved_migrations = ct.JOB_STATE_MIGRATIONS
+        saved_migrations = store.JOB_STATE_MIGRATIONS
         try:
             for result in (None, {"schema": 3, "schema_namespace": ct.JOB_STATE_SCHEMA_NAMESPACE}):
                 with self.subTest(result=result):
-                    ct.JOB_STATE_MIGRATIONS = {1: lambda job, value=result: value}
+                    store.JOB_STATE_MIGRATIONS = {1: lambda job, value=result: value}
                     with self.assertRaises(ct.CliError) as error:
                         ct.migrate_job_state({"schema": 1,
                                               "schema_namespace": ct.JOB_STATE_SCHEMA_NAMESPACE})
                     self.assertEqual(error.exception.code, "bad_state")
         finally:
-            ct.JOB_STATE_MIGRATIONS = saved_migrations
+            store.JOB_STATE_MIGRATIONS = saved_migrations
 
     def test_migration_exception_is_reported_as_bad_state(self):
         def broken(job):
             raise KeyError("fixture")
 
-        saved_migrations = ct.JOB_STATE_MIGRATIONS
+        saved_migrations = store.JOB_STATE_MIGRATIONS
         try:
-            ct.JOB_STATE_MIGRATIONS = {1: broken}
+            store.JOB_STATE_MIGRATIONS = {1: broken}
             with self.assertRaises(ct.CliError) as error:
                 ct.migrate_job_state({"schema": 1,
                                       "schema_namespace": ct.JOB_STATE_SCHEMA_NAMESPACE})
             self.assertEqual(error.exception.code, "bad_state")
         finally:
-            ct.JOB_STATE_MIGRATIONS = saved_migrations
+            store.JOB_STATE_MIGRATIONS = saved_migrations
 
     def test_all_jobs_fails_closed_on_malformed_state(self):
         job_id = "99999999-9999-4999-8999-999999999999"

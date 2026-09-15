@@ -4,6 +4,39 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Phase 2: separate the runtime by responsibility
+
+- Extracted persisted job/round access and schema/migration into
+  `delegate_job_store.py`, ownership/reservation/request-dedupe into
+  `delegate_ownership.py`, process identity/termination into
+  `delegate_process.py`, live-blockers/reconciliation into
+  `delegate_recovery.py`, and completion/acceptance transitions into
+  `delegate_completion.py`. A shared `delegate_core.CliError` keeps one error
+  class across the `claude_task`/`__main__` instances.
+- Added `delegate_transport.py`, the provider adapter seam. `cmd_start` and
+  `cmd_revise` select provider start/revision preparation through the adapter,
+  and the CLI `worker_run` dispatch is provider-neutral; a new adapter (or test
+  fake) is registered without editing that dispatch. The Claude Agent SDK
+  idle-connection refresh (`sdk_scope_changed`/`close_idle`) remains a disclosed
+  compatibility branch outside the adapter. The public CLI/MCP allowlist still
+  permits only Claude/Kimi/OpenCode.
+- Moved the reusable process wait/timeout action into `delegate_process.py`, and
+  the provider-neutral stop and acceptance transitions into
+  `delegate_recovery.stop_transition` and
+  `delegate_completion.apply_acceptance`; `cmd_stop`/`cmd_accept` are thin
+  orchestration adapters. Added focused regression tests (never signals an
+  arbitrary PID).
+- `work/skill-verification/test_transport_seam.py` registers a fake adapter and
+  drives `cmd_start` -> detached worker completion -> `cmd_accept` through the
+  real provider-independent commands (the worker finds the fake via a test-side
+  `sitecustomize`; no product plugin mechanism).
+- Behavior-preserving: no CLI/MCP JSON, tool schema, state directory, job/round
+  shape, request receipt, profile, permission, quota, or error-code change. The
+  frozen black-box suite and old/current/accepted fixtures are unchanged; no
+  schema bump. See [architecture](docs/ARCHITECTURE.md).
+- Current aggregate: 243 Python + 11 JavaScript tests pass locally with
+  fixtures (no paid model call).
+
 ## Unreleased — Phase 1: tighten external-delegation policy
 
 - Added the canonical [external delegation policy](skill/references/delegation-policy.md):
@@ -15,8 +48,8 @@ command that produces it, see [Tests](README.md#tests).
 - Added durable policy-text contract checks. They keep the trigger and
   precedence text present; they do not prove stable model routing or quota
   savings, and they cannot verify the unavailable-route behavior end to end.
-- Current aggregate: 240 Python + 11 JavaScript tests pass locally with
-  fixtures (no paid model call).
+- Historical aggregate for this phase: 240 Python + 11 JavaScript tests passed
+  locally with fixtures (no paid model call).
 
 ## Unreleased — Phase 0: freeze the observable contract
 

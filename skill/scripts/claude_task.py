@@ -36,7 +36,6 @@ import json
 import os
 import re
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -44,30 +43,30 @@ import threading
 import time
 import uuid
 
+import delegate_completion
+import delegate_job_store
+import delegate_process
+import delegate_recovery
+import delegate_transport
+from delegate_core import CliError
+from delegate_recovery import live_blockers, process_view, reconcile
+from delegate_job_store import (JOB_STATE_LEGACY_NO_NAMESPACE_VERSION, JOB_STATE_MIGRATIONS,
+                                JOB_STATE_SCHEMA_NAMESPACE, JOB_STATE_SCHEMA_VERSION,
+                                JOB_STATE_SUPPORTED_VERSIONS, Context, current_round,
+                                default_state_dir, migrate_job_state, prompt_path, round_dir,
+                                validate_job_namespace, validate_job_schema)
+from delegate_ownership import find_conflict, keys_conflict, reservation_key, validate_owner
+from delegate_process import (STATE_GONE, capture_identity, identity_state, pid_liveness,
+                              ps_probe, terminate_recorded)
+
 # --------------------------------------------------------------------------- #
 # Constants
 # --------------------------------------------------------------------------- #
 
-# Job-state schema namespace and versions. Deliberately distinct from the
-# evidence-manifest namespace in review_evidence.py: a change to one never
-# implies a change to the other. Both are versioned and fail closed on unknown
-# versions. See docs/CONTRACTS.md.
-JOB_STATE_SCHEMA_NAMESPACE = "codex-cli-delegate/job-state"
-JOB_STATE_SCHEMA_VERSION = 1
-JOB_STATE_SUPPORTED_VERSIONS = frozenset((JOB_STATE_SCHEMA_VERSION,))
-# Pre-namespace v1 documents still have ``schema: 1`` but no
-# ``schema_namespace``. They are read as this version and gain the namespace
-# only when a later save persists them. A missing version or a document that
-# declares a different namespace always fails closed.
-JOB_STATE_LEGACY_NO_NAMESPACE_VERSION = 1
+# Job-state schema/migration constants live in delegate_job_store (with the
+# reader that enforces them) and are imported above. See docs/CONTRACTS.md.
 # Legacy alias: callers and fixtures that referenced the old constant name.
 SCHEMA_VERSION = JOB_STATE_SCHEMA_VERSION
-
-# Registry of {from_version: migrate_fn(job) -> job}. Adding or changing a
-# persisted job-state field REQUIRES an N -> N+1 entry here plus a regenerated
-# post-migration fixture. The read path applies migrations before the
-# supported-version check, in memory; a read never rewrites the job file.
-JOB_STATE_MIGRATIONS = {}
 
 MODEL = "claude-opus-5"
 EFFORT = "max"
@@ -153,16 +152,6 @@ SECRET_RE = re.compile(
     r"|xox[abprs]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}"
     r"|ey[A-Za-z0-9_\-]{18,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,})"
 )
-
-
-class CliError(Exception):
-    """An operator-visible failure reported as compact JSON."""
-
-    def __init__(self, code, message, **extra):
-        super().__init__(message)
-        self.code = code
-        self.message = message
-        self.extra = extra
 
 
 # --------------------------------------------------------------------------- #
@@ -256,89 +245,8 @@ def copy_private(src, dst, max_bytes):
     atomic_write_bytes(dst, data)
 
 
-# --------------------------------------------------------------------------- #
-# Job-state schema (migration on read, fail closed)
-# --------------------------------------------------------------------------- #
-
-
-def migrate_job_state(job):
-    """Apply registered N -> N+1 migrations in memory, then return the job.
-
-    A version with no registered migration is returned untouched so the
-    supported-version check decides whether it is acceptable. A cycle is a
-    programming error and is refused rather than looped forever.
-    """
-    if not isinstance(job, dict):
-        raise CliError("bad_state", "job state is not a JSON object")
-    validate_job_namespace(job)
-    version = job.get("schema")
-    seen = set()
-    while type(version) is int and version in JOB_STATE_MIGRATIONS:
-        if version in seen:
-            raise CliError("bad_state", "job-state migration loop at schema %r" % (version,))
-        seen.add(version)
-        next_version = version + 1
-        try:
-            job = JOB_STATE_MIGRATIONS[version](job)
-        except CliError:
-            raise
-        except Exception as exc:
-            raise CliError("bad_state", "job-state migration failed: %s" % type(exc).__name__)
-        if not isinstance(job, dict):
-            raise CliError("bad_state", "job-state migration did not return an object")
-        validate_job_namespace(job)
-        version = job.get("schema")
-        if type(version) is not int or version != next_version:
-            raise CliError(
-                "bad_state",
-                "job-state migration must advance exactly one version",
-                expected_schema=next_version,
-                actual_schema=version,
-            )
-    return job
-
-
-def validate_job_namespace(job):
-    """Reject a declared foreign namespace before any migration runs."""
-    namespace = job.get("schema_namespace")
-    if namespace is not None and namespace != JOB_STATE_SCHEMA_NAMESPACE:
-        raise CliError(
-            "unsupported_schema",
-            "foreign job-state schema namespace",
-            schema=job.get("schema"),
-            namespace=namespace,
-            expected=JOB_STATE_SCHEMA_NAMESPACE,
-        )
-
-
-def validate_job_schema(job):
-    """Fail closed unless the job carries a supported job-state schema.
-
-    A document that declares a different ``schema_namespace`` is refused. An
-    absent namespace is tolerated only for the legacy pre-namespace v1 shape
-    and is left untouched on read; any present but unsupported version or type
-    is refused so a newer or foreign writer is never silently misinterpreted.
-    """
-    validate_job_namespace(job)
-    namespace = job.get("schema_namespace")
-    version = job.get("schema")
-    if type(version) is not int or version not in JOB_STATE_SUPPORTED_VERSIONS:
-        raise CliError(
-            "unsupported_schema",
-            "unsupported job-state schema version",
-            schema=job.get("schema"),
-            namespace=JOB_STATE_SCHEMA_NAMESPACE,
-            supported=sorted(JOB_STATE_SUPPORTED_VERSIONS),
-        )
-    if namespace is None and version != JOB_STATE_LEGACY_NO_NAMESPACE_VERSION:
-        raise CliError(
-            "unsupported_schema",
-            "job state is missing its schema namespace",
-            schema=version,
-            namespace=None,
-            expected=JOB_STATE_SCHEMA_NAMESPACE,
-        )
-    return version
+# Job-state schema/migration and persisted job access live in
+# delegate_job_store and are re-exported here for the existing public surface.
 
 
 # --------------------------------------------------------------------------- #
@@ -388,184 +296,13 @@ class StateLock:
 # --------------------------------------------------------------------------- #
 # Process identity
 # --------------------------------------------------------------------------- #
-# PIDs are reused, so a PID alone never justifies a signal.  Every process we
-# launch carries a unique per-run token in its argv and we pin its
-# kernel-reported start time; both must still match at signal time.
-
-# Only "exited" is proof of absence.  "unknown" means nothing was ever
-# recorded.  Everything else means a process may exist that we must not signal.
-STATE_GONE = frozenset(("exited", "unknown"))
-
-
-def _ps_field(pid, fmt):
-    try:
-        proc = subprocess.run(
-            ["/bin/ps", "-ww", "-p", str(pid), "-o", fmt],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if proc.returncode != 0:
-        return None
-    text = proc.stdout.decode("utf-8", "replace").strip()
-    return text or None
-
-
-def ps_probe(pid):
-    """Return {'lstart':..., 'command':...} for a live pid, else None."""
-    if not isinstance(pid, int) or pid <= 1:
-        return None
-    lstart = _ps_field(pid, "lstart=")
-    if lstart is None:
-        return None
-    command = _ps_field(pid, "command=")
-    if command is None:
-        return None
-    return {"lstart": " ".join(lstart.split()), "command": command}
-
-
-def capture_identity(pid, token, settle_seconds=IDENTITY_SETTLE_SECONDS):
-    """Pin a launched process' identity, waiting briefly for exec to land.
-
-    Between fork and exec a child may still show the parent's argv, so poll
-    until the unique token appears.  If it never does, record the process as
-    unverified, which permanently disqualifies it from being signalled here.
-    """
-    deadline = now() + settle_seconds
-    probe = None
-    while True:
-        probe = ps_probe(pid)
-        if probe and token in probe["command"]:
-            return {
-                "pid": pid,
-                "run_token": token,
-                "lstart": probe["lstart"],
-                "identity_verified": True,
-                "recorded_at": iso(),
-            }
-        if now() >= deadline:
-            break
-        time.sleep(0.05)
-    return {
-        "pid": pid,
-        "run_token": token,
-        "lstart": probe["lstart"] if probe else None,
-        "identity_verified": False,
-        "recorded_at": iso(),
-    }
-
-
-def pid_liveness(pid):
-    """``gone`` only on ESRCH; EPERM still means the pid is occupied."""
-    if not isinstance(pid, int) or pid <= 1:
-        return "gone"
-    try:
-        os.kill(pid, 0)
-        return "present"
-    except OSError as exc:
-        if exc.errno == errno.ESRCH:
-            return "gone"
-        if exc.errno == errno.EPERM:
-            return "present"
-        return "unknown"
-
-
-def identity_state(record):
-    """Classify a recorded process.
-
-    ``alive``         identity re-verified, safe to signal
-    ``mismatch``      the pid is occupied by something that is not provably ours
-    ``unverifiable``  the pid is occupied but ps could not describe it
-    ``exited``        proof (ESRCH) that the pid is gone
-    ``unknown``       nothing was ever recorded
-    """
-    if not record or not isinstance(record.get("pid"), int):
-        return "unknown"
-    liveness = pid_liveness(record["pid"])
-    if liveness == "gone":
-        return "exited"
-    if record.get("identity_method") == "darwin_proc":
-        from kimi_backend import identity_state as kimi_identity_state
-        return kimi_identity_state(record)
-    probe = ps_probe(record["pid"])
-    if probe is None:
-        # The pid is occupied (or its state is undecidable) but ps told us
-        # nothing.  A ps failure is not evidence that the process ended.
-        return "unverifiable"
-    if not record.get("identity_verified"):
-        return "mismatch"
-    token = record.get("run_token") or ""
-    if token and token not in probe["command"]:
-        return "mismatch"
-    recorded_lstart = record.get("lstart")
-    if recorded_lstart and probe["lstart"] != recorded_lstart:
-        return "mismatch"
-    return "alive"
-
-
-def _signal_run(pid, sig):
-    """Signal the pid and, if it leads its own session, its group with it."""
-    try:
-        if os.getpgid(pid) == pid:
-            os.killpg(pid, sig)
-            return
-    except (OSError, AttributeError):
-        pass
-    os.kill(pid, sig)
-
-
-def _await_exit(record, seconds):
-    deadline = now() + seconds
-    while now() < deadline:
-        if identity_state(record) != "alive":
-            return True
-        time.sleep(0.1)
-    return identity_state(record) != "alive"
-
-
-def terminate_recorded(record, grace=5.0):
-    """SIGTERM (then SIGKILL) a process only if its identity still matches.
-
-    Anything other than ``alive`` is refused: an unrelated or unverifiable pid
-    is never signalled.  The reported ``state`` is always re-derived afterwards
-    so a caller cannot mistake "refused" for "stopped".
-    """
-    state = identity_state(record)
-    if state != "alive":
-        return {"signalled": False, "state": state, "refused": state in ("mismatch", "unverifiable")}
-    pid = record["pid"]
-    sent = []
-    try:
-        _signal_run(pid, signal.SIGTERM)
-        sent.append("TERM")
-    except OSError as exc:
-        return {"signalled": False, "state": identity_state(record), "errno": exc.errno}
-
-    if not _await_exit(record, grace):
-        try:
-            _signal_run(pid, signal.SIGKILL)
-            sent.append("KILL")
-        except OSError:
-            pass
-        _await_exit(record, 3.0)
-    return {"signalled": True, "signals": sent, "state": identity_state(record)}
+# Process identity, liveness, and termination live in delegate_process and are
+# re-exported here so existing callers and patch points keep working.
 
 
 # --------------------------------------------------------------------------- #
 # Validation
 # --------------------------------------------------------------------------- #
-
-
-def validate_owner(owner):
-    if not owner or not str(owner).strip():
-        raise CliError("no_owner", "an owner is required: pass --owner or set CODEX_THREAD_ID")
-    owner = str(owner).strip()
-    if not OWNER_RE.match(owner):
-        raise CliError("bad_owner", "owner must be 1-200 chars of [A-Za-z0-9._:@+-]")
-    return owner
 
 
 def validate_cwd(path):
@@ -694,156 +431,9 @@ def resolve_claude_bin(explicit):
 # --------------------------------------------------------------------------- #
 
 
-def default_state_dir():
-    codex_home = os.environ.get("CODEX_HOME") or os.path.join(os.path.expanduser("~"), ".codex")
-    return os.path.join(codex_home, "claude-delegate")
-
-
-class Context:
-    def __init__(self, state_dir, owner=None, claude_bin=None):
-        self.state_dir = os.path.abspath(os.path.expanduser(state_dir))
-        ensure_dir(self.state_dir)
-        self.jobs_dir = ensure_dir(os.path.join(self.state_dir, "jobs"))
-        self.real_jobs_dir = os.path.realpath(self.jobs_dir)
-        self.owner_raw = owner
-        self.claude_bin_raw = claude_bin
-
-    def owner(self):
-        return validate_owner(self.owner_raw)
-
-    def job_dir(self, job_id):
-        require_uuid(job_id, "job id")
-        path = os.path.join(self.jobs_dir, job_id)
-        # A symlinked job directory would let a write escape the state root.
-        if os.path.islink(path):
-            raise CliError("unsafe_path", "job directory is a symlink: %s" % job_id)
-        if os.path.realpath(path) != os.path.join(self.real_jobs_dir, job_id):
-            raise CliError("unsafe_path", "job directory resolves outside the state root")
-        return path
-
-    def job_file(self, job_id):
-        return os.path.join(self.job_dir(job_id), "job.json")
-
-    def load(self, job_id):
-        path = self.job_file(job_id)
-        if not os.path.isfile(path):
-            raise CliError("not_found", "no such job: %s" % job_id)
-        try:
-            job = read_json(path)
-        except (OSError, ValueError) as exc:
-            raise CliError("bad_state", "unreadable job state: %s" % exc)
-        job = migrate_job_state(job)
-        validate_job_schema(job)
-        return job
-
-    def save(self, job):
-        # Disk-loaded jobs pass validate_job_schema before reaching this point.
-        # The defaults also support new in-process objects built by internal
-        # callers and tests; they are not a compatibility path for schema-less
-        # files on disk. A legacy v1 object gains the namespace on its next save.
-        job.setdefault("schema", JOB_STATE_SCHEMA_VERSION)
-        job.setdefault("schema_namespace", JOB_STATE_SCHEMA_NAMESPACE)
-        job["updated_at"] = iso()
-        write_json(self.job_file(job["job_id"]), job)
-
-    def load_owned(self, job_id):
-        job = self.load(job_id)
-        owner = self.owner()
-        if job.get("owner") != owner:
-            # Addressing is per-owner so two Codex tasks cannot reach into each
-            # other's jobs by accident.  Not a multi-user security boundary.
-            raise CliError("forbidden", "job %s is not owned by %s" % (job_id, owner))
-        return job
-
-    def all_jobs(self):
-        out = []
-        try:
-            names = sorted(os.listdir(self.jobs_dir))
-        except OSError:
-            return out
-        for name in names:
-            if not valid_uuid(name):
-                continue
-            path = os.path.join(self.jobs_dir, name)
-            if os.path.islink(path) or not os.path.isdir(path):
-                continue
-            job_file = os.path.join(path, "job.json")
-            if not os.path.isfile(job_file):
-                # A crash before the first save can leave an empty directory,
-                # but no persisted reservation exists in that case.
-                continue
-            # Use the same reader as direct job operations. A malformed,
-            # foreign, or newer state may still represent a reservation, so
-            # enumeration fails closed instead of silently starting over it.
-            try:
-                out.append(self.load(name))
-            except CliError as exc:
-                extra = dict(exc.extra)
-                extra.setdefault("job_id", name)
-                raise CliError(exc.code, exc.message, **extra)
-        return out
-
-
-def round_dir(job_root, index):
-    return os.path.join(job_root, "rounds", "r%03d" % index)
-
-
-def prompt_path(job_root, index):
-    return os.path.join(job_root, "prompts", "r%03d.md" % index)
-
-
-def current_round(job):
-    index = job.get("current_round", 0)
-    rounds = job.get("rounds") or []
-    if 0 <= index < len(rounds):
-        return index, rounds[index]
-    return index, {}
-
-
-# --------------------------------------------------------------------------- #
-# Checkout reservation
-# --------------------------------------------------------------------------- #
-
-
-def reservation_key(cwd):
-    """Identify the checkout a job will write to.
-
-    Git worktrees each report their own toplevel, so distinct worktrees of one
-    repository may run concurrently while two subdirectories of the same
-    checkout collide.  Non-Git directories fall back to path containment.
-    """
-    try:
-        proc = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        proc = None
-    if proc is not None and proc.returncode == 0:
-        top = proc.stdout.decode("utf-8", "replace").strip()
-        if top:
-            return "git:" + os.path.realpath(top)
-    return "path:" + cwd
-
-
-def keys_conflict(a, b):
-    pa, pb = a.partition(":")[2], b.partition(":")[2]
-    return pa == pb or pa.startswith(pb.rstrip(os.sep) + os.sep) or pb.startswith(pa.rstrip(os.sep) + os.sep)
-
-
-def find_conflict(ctx, key, ignore_job_id=None):
-    for job in ctx.all_jobs():
-        if job.get("job_id") == ignore_job_id:
-            continue
-        if job.get("phase") not in RESERVING_PHASES:
-            continue
-        other = job.get("reservation_key")
-        if other and keys_conflict(key, other):
-            return job
-    return None
+# Persisted job access and round path helpers live in delegate_job_store and
+# are re-exported here; checkout reservation/owner validation live in
+# delegate_ownership.
 
 
 # --------------------------------------------------------------------------- #
@@ -1478,124 +1068,8 @@ def launch_transaction(ctx, job, index, resume):
 
 
 # --------------------------------------------------------------------------- #
-# Reconciliation (crash recovery without self-healing)
-# --------------------------------------------------------------------------- #
-
-
-def live_blockers(job, allow_idle_sdk=False):
-    """Everything that must be provably gone before a new round may launch.
-
-    A recorded process only clears if we have proof it exited.  A round that
-    was launched but never registered a worker also blocks: we cannot establish
-    the absence of a process that may be about to invoke Claude.
-    """
-    blockers = []
-    idle_sdk = (allow_idle_sdk and job.get("transport") == "sdk"
-                and job.get("phase") == PHASE_AWAITING_REVIEW
-                and current_round(job)[1].get("finalized")
-                and not job.get("sdk_closing"))
-    for record in job.get("rounds") or []:
-        for name in ("worker", "claude"):
-            state = identity_state(record.get(name))
-            if (idle_sdk and state == "alive"
-                    and record.get(name) == job.get("sdk_" + name)):
-                continue
-            if state not in STATE_GONE:
-                blockers.append(
-                    {
-                        "round": record.get("round"),
-                        "process": name,
-                        "state": state,
-                        "pid": (record.get(name) or {}).get("pid"),
-                    }
-                )
-    index, record = current_round(job)
-    if record:
-        if record.get("claude") is None and record.get("claude_launch_pending"):
-            blockers.append({"round": index, "process": "claude", "state": "unregistered_launch"})
-        elif not record.get("finalized") and not job.get("stop_requested") and record.get("worker") is None:
-            blockers.append({"round": index, "process": "worker", "state": "unregistered_launch"})
-    return blockers
-
-
-def reconcile(ctx, job):
-    """Bring a job's phase in line with observable process reality.
-
-    Deliberately conservative: work is never relabelled done because a
-    controller vanished, and the original task is never silently replayed.
-    """
-    if job.get("phase") not in BUSY_PHASES:
-        return job, False
-
-    index, record = current_round(job)
-    if record.get("finalized"):
-        # The worker finalised and exited between our reads.
-        return job, False
-    if record.get("status") == "launching" and now() - float(record.get("started_epoch") or 0) < LAUNCH_GRACE_SECONDS:
-        # Still inside the spawn window; nothing to conclude yet.
-        return job, False
-
-    worker_state = identity_state(record.get("worker"))
-    claude_state = identity_state(record.get("claude"))
-
-    if worker_state not in STATE_GONE:
-        # Includes "mismatch"/"unverifiable": a pid is occupied but we cannot
-        # prove it is ours.  Report it; never declare the run dead, never signal.
-        job["process_state"] = "supervised" if worker_state == "alive" else "unverified"
-        return job, False
-
-    if claude_state not in STATE_GONE or record.get("claude_launch_pending"):
-        job["phase"] = PHASE_NEEDS_ATTENTION
-        job["process_state"] = "orphaned"
-        job["attention"] = {
-            "reason": "worker_gone_claude_%s" % (claude_state if claude_state != "unknown" else "unregistered"),
-            "detail": "supervisor exited while a Claude process may still be running; "
-            "inspect evidence or stop the job, do not start duplicate work",
-            "at": iso(),
-        }
-        ctx.save(job)
-        return job, True
-
-    if worker_state == "unknown":
-        # Launched (the round exists) but no identity was ever committed.
-        job["phase"] = PHASE_NEEDS_ATTENTION
-        job["process_state"] = "unregistered"
-        job["attention"] = {
-            "reason": "launch_unregistered",
-            "detail": "the launch transaction did not commit a worker identity; "
-            "stop the job to fence it before recovering",
-            "at": iso(),
-        }
-        ctx.save(job)
-        return job, True
-
-    job["phase"] = PHASE_INTERRUPTED
-    job["process_state"] = "dead"
-    job["attention"] = {
-        "reason": "worker_gone_no_result",
-        "detail": "no live process and no finalized round result; evidence retained, "
-        "use revise --recover with a prompt written after inspection",
-        "at": iso(),
-    }
-    record["status"] = "interrupted"
-    record["finished_at"] = record.get("finished_at") or iso()
-    ctx.save(job)
-    return job, True
-
-
-def process_view(job):
-    _, record = current_round(job)
-    worker = identity_state(record.get("worker"))
-    claude = identity_state(record.get("claude"))
-    if worker == "alive":
-        state = "supervised"
-    elif worker not in STATE_GONE:
-        state = "unverified"
-    elif claude not in STATE_GONE:
-        state = "orphaned"
-    else:
-        state = "idle"
-    return {"worker": worker, "claude": claude, "state": state}
+# Live-process blockers and crash reconciliation live in
+# delegate_recovery and are re-exported here for the existing surface.
 
 
 # --------------------------------------------------------------------------- #
@@ -1604,13 +1078,9 @@ def process_view(job):
 
 
 def backend_baseline(job):
-    if job.get("backend") == "opencode":
-        from opencode_backend import baseline
-        return baseline(job)
-    if job.get("backend", "claude") == "kimi":
-        from kimi_backend import baseline
-        return baseline(job)
-    return snapshot_assistant_baseline(job["session_id"], job["cwd"], job.get("claude_config_dir"))
+    """Provider-neutral baseline lookup via the transport adapter registry."""
+    from delegate_transport import for_job
+    return for_job(job).baseline(job)
 
 
 def cmd_capabilities(ctx, args):
@@ -1627,40 +1097,15 @@ def cmd_start(ctx, args):
     allow_tools = validate_allow_rules(args.allow_tool)
     backend = args.backend
     transport = getattr(args, "transport", "cli")
-    if transport == "sdk":
-        if backend != "claude":
-            raise CliError("wrong_backend", "SDK transport currently applies to Claude")
-        from claude_sdk_backend import preflight
-        preflight()
-    if backend != "opencode" and (args.opencode_bin or args.opencode_tool):
-        raise CliError("wrong_backend", "OpenCode options require --backend opencode")
+    # Provider-specific start preparation is selected through the adapter.
+    adapter = delegate_transport.for_name(backend)
+    adapter.transport_preflight(transport)
     read_dirs, required_files = read_access(cwd, getattr(args, "read_dir", []), getattr(args, "require_file", []))
-    if backend != "claude" and (read_dirs or required_files):
-        raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
-    quota = None
-    kimi_options = {}
-    if backend == "opencode":
-        if args.kimi_bin or args.kimi_tool:
-            raise CliError("wrong_backend", "Kimi options require --backend kimi")
-        from opencode_backend import prepare
-        kimi_options = prepare(args.opencode_bin, args.opencode_tool, args.allow_tool)
-        claude_bin = None
-    elif backend == "kimi":
-        if os.path.getsize(prompt) > 64 * 1024:
-            raise CliError("kimi_prompt_size", "Kimi prompt must be at most 64 KiB (CLI argument limit)")
-        from kimi_backend import prepare
-        kimi_options = prepare(args.kimi_bin, args.kimi_tool, args.allow_tool)
-        claude_bin = None
-    else:
-        if args.kimi_bin or args.kimi_tool:
-            raise CliError("wrong_backend", "Kimi options require --backend kimi")
-        claude_bin = resolve_claude_bin(ctx.claude_bin_raw)
-        from claude_quota import account_home
-        quota = quota_gate(ctx, account_home(), refresh=True)
+    fields, result_extra, session_id = adapter.start_config(ctx, args, prompt, read_dirs, required_files)
+    quota = result_extra.get("quota")
     key = reservation_key(cwd)
 
     job_id = str(uuid.uuid4())
-    session_id = None if backend != "claude" else str(uuid.uuid4())
 
     with StateLock(ctx.state_dir):
         conflict = find_conflict(ctx, key)
@@ -1699,15 +1144,10 @@ def cmd_start(ctx, args):
             "current_round": 0,
             "backend": backend,
             "transport": transport,
-            "model": "deepseek/deepseek-flash" if backend == "opencode" else ("kimi-code/k3-256k" if backend == "kimi" else MODEL),
-            "effort": "high" if backend == "opencode" else EFFORT,
-            **kimi_options,
-            "claude_bin": claude_bin,
+            **fields,
             "allow_tools": allow_tools,
             "read_dirs": read_dirs,
             "required_files": required_files,
-            "claude_config_dir": account_home() if backend == "claude" else None,
-            "claude_config_env": os.environ.get("CLAUDE_CONFIG_DIR") if backend == "claude" else None,
             "stop_requested": False,
             "process_state": "starting",
             "cli_version": None,
@@ -1717,10 +1157,10 @@ def cmd_start(ctx, args):
                     job_id,
                     0,
                     "initial",
-                    os.path.relpath(saved_prompt, job_root),
-                    sha256_file(saved_prompt),
-                    *(([], "empty") if backend != "claude" else snapshot_assistant_baseline(session_id, cwd))
-                )
+                     os.path.relpath(saved_prompt, job_root),
+                     sha256_file(saved_prompt),
+                     *delegate_transport.for_name(backend).initial_baseline(session_id, cwd)
+                 )
             ],
         }
         job["rounds"][0]["timeout"] = timeout
@@ -1812,17 +1252,15 @@ def revise_transaction(ctx, args):
                 max_revisions=limit,
             )
 
+        # Provider-specific revision preparation is selected through the adapter.
+        adapter = delegate_transport.for_job(job)
         additions = validate_allow_rules(getattr(args, "allow_tool", None))
-        if additions and job.get("backend", "claude") != "claude":
-            raise CliError("wrong_backend", "Claude permission rules require the Claude backend")
+        adapter.revision_additions(additions)
         allow_tools = list(dict.fromkeys((job.get("allow_tools") or []) + additions))
         dirs = list(dict.fromkeys((job.get("read_dirs") or []) + (getattr(args, "read_dir", None) or [])))
         inputs = list(dict.fromkeys([v["path"] for v in job.get("required_files") or []] + (getattr(args, "require_file", None) or [])))
         read_dirs, required_files = read_access(job["cwd"], dirs, inputs)
-        if job.get("backend", "claude") == "claude":
-            quota_gate(ctx, job.get("claude_config_dir"), refresh=True)
-        elif read_dirs or required_files:
-            raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        revision_fields = adapter.revision_config(ctx, job, read_dirs, required_files)
 
         # A revision must still own the checkout; if another job took it while
         # this one was released (e.g. after stop), refuse rather than double-write.
@@ -1835,10 +1273,7 @@ def revise_transaction(ctx, args):
                 conflict_phase=conflict.get("phase"),
             )
 
-        if job.get("backend", "claude") == "kimi":
-            from kimi_backend import require_hooks
-            require_hooks(job["kimi_home"])
-            job["kimi_hooks"] = True
+        job.update(revision_fields)
 
         if (job.get("transport") == "sdk" and identity_state(job.get("sdk_worker")) == "alive"
                 and (read_dirs != job.get("read_dirs", []) or allow_tools != job.get("allow_tools", []))):
@@ -1850,8 +1285,7 @@ def revise_transaction(ctx, args):
         saved_prompt = prompt_path(job_root, index)
         copy_private(prompt, saved_prompt, PROMPT_MAX_BYTES)
 
-        if job.get("backend", "claude") == "kimi" and os.path.getsize(prompt) > 64 * 1024:
-            raise CliError("kimi_prompt_size", "Kimi prompt must be at most 64 KiB (CLI argument limit)")
+        adapter.revision_prompt_check(prompt)
 
         record = new_round(
             job["job_id"],
@@ -2124,33 +1558,8 @@ def cmd_stop(ctx, args):
     with StateLock(ctx.state_dir):
         job = ctx.load(args.job)
         remaining = live_blockers(job)
-        index, record = current_round(job)
-        if not remaining:
-            if record and not record.get("finalized"):
-                record["status"] = "stopped"
-                record["finished_at"] = iso()
-                record["finalized"] = True
-            if job.get("phase") != PHASE_ACCEPTED:
-                job["phase"] = PHASE_STOPPED
-            job["process_state"] = "stopped"
-        else:
-            # Something is alive or unverifiable. A phase that still reserves
-            # the checkout says so; an already-terminal phase (accepted or
-            # stopped) stays terminal and reservation-free, so its detail must
-            # not claim a reservation it does not hold.
-            if job.get("phase") not in TERMINAL_DECISION_PHASES:
-                job["phase"] = PHASE_NEEDS_ATTENTION
-            job["process_state"] = "stop_incomplete"
-            reservation_held = job["phase"] in RESERVING_PHASES
-            job["attention"] = {
-                "reason": "stop_incomplete",
-                "detail": ("processes could not be confirmed stopped; reservation retained"
-                           if reservation_held else
-                           "processes could not be confirmed stopped; terminal job remains reservation-free"),
-                "at": iso(),
-                "remaining": remaining,
-            }
-        job["stopped"] = {"at": iso(), "by": job.get("owner"), "signals": signals, "complete": not remaining}
+        # Provider-neutral stop transition lives in delegate_recovery.
+        delegate_recovery.stop_transition(job, remaining, signals)
         ctx.save(job)
 
     return {
@@ -2307,18 +1716,9 @@ def cmd_accept(ctx, args):
         saved_notes = os.path.join(notes_dir, "r%03d-accept.md" % index)
         copy_private(notes, saved_notes, NOTES_MAX_BYTES)
 
-        job["phase"] = PHASE_ACCEPTED
-        job["accepted"] = {
-            "at": iso(),
-            "by": job.get("owner"),
-            "round": index,
-            "notes": os.path.relpath(saved_notes, job_root),
-            "notes_sha256": sha256_file(saved_notes),
-            "verified_model": job.get("model", MODEL),
-            "verified_effort": job.get("effort", EFFORT),
-            "review_evidence": review_evidence,
-        }
-        job["process_state"] = "accepted"
+        delegate_completion.apply_acceptance(
+            job, index, os.path.relpath(saved_notes, job_root), sha256_file(saved_notes),
+            review_evidence, job.get("model", MODEL), job.get("effort", EFFORT), iso())
         ctx.save(job)
 
     return {
@@ -2454,37 +1854,15 @@ def worker_run(ctx, args, job_id, index, job_root, log):
         ctx.save(job)
 
     resume = bool(args.resume)
-    prior_uuids = record.get("prior_assistant_uuids") or []
-    baseline_status = record.get("baseline_status") or "unknown"
     prompt_file = os.path.join(job_root, record["prompt"])
     stdout_path = os.path.join(job_root, record["evidence"]["stdout"])
     stderr_path = os.path.join(job_root, record["evidence"]["stderr"])
     timeout = validate_timeout(job.get("timeout", DEFAULT_TIMEOUT))
-    is_kimi = job.get("backend", "claude") == "kimi"
-    is_opencode = job.get("backend") == "opencode"
-    if is_opencode:
-        import opencode_backend
-        argv, env, prompt_file = opencode_backend.setup(job, record, resume, prompt_file, round_dir(job_root, index))
-        monitor = opencode_backend.OpenCodeMonitor(round_dir(job_root, index), job, record, write_json)
-    elif is_kimi:
-        import kimi_backend
-        argv = kimi_backend.argv(job, record, resume, prompt_file, round_dir(job_root, index))
-        monitor = kimi_backend.KimiMonitor(round_dir(job_root, index), job, record, write_json)
-        from kimi_hooks import ROUTE_ENV, route
-        env = dict(os.environ, KIMI_CODE_HOME=job["kimi_home"])
-        env[ROUTE_ENV] = route(ctx.state_dir, job, record)
-    else:
-        from claude_events import Monitor, hook_settings
-        from claude_quota import Observer, account_home
-        settings_path = os.path.join(round_dir(job_root, index), "hook-settings.json")
-        write_json(settings_path, hook_settings(
-            os.path.join(os.path.dirname(os.path.realpath(__file__)), "claude_events.py"),
-            ctx.state_dir, job, record))
-        argv = build_claude_argv(job, token, resume=resume) + ["--settings", settings_path]
-        monitor = Monitor(round_dir(job_root, index), job["session_id"],
-                          record["started_epoch"], write_json,
-                          quota_observer=Observer(ctx.state_dir, job.get("claude_config_dir") or account_home(), job["session_id"]))
-        env = job_environment(job, child_env())
+    # Provider-neutral dispatch: the adapter owns invocation preparation and
+    # native verification; the lifecycle below has no provider branches.
+    transport = delegate_transport.for_job(job)
+    argv, env, prompt_file, monitor = transport.prepare(
+        ctx.state_dir, job, record, resume, prompt_file, round_dir(job_root, index))
 
     wlog(
         log,
@@ -2515,25 +1893,20 @@ def worker_run(ctx, args, job_id, index, job_root, log):
                 stored_record["claude_launch_pending"] = False
                 ctx.save(stored)
                 return {"ok": False, "error": "stopped_before_launch"}
-            if not is_kimi and not is_opencode:
-                # Recheck at the actual launch boundary; a different active job
-                # may have reached the threshold since start/revise reserved us.
-                try:
-                    quota_gate(ctx, stored.get("claude_config_dir"))
-                    read_access(stored["cwd"], stored.get("read_dirs"),
-                                [v["path"] for v in stored.get("required_files") or []])
-                except CliError as exc:
-                    stored_record.update(status="not_started", finalized=True, exit_code=None,
-                                         claude_launch_pending=False, finished_at=iso())
-                    stored["phase"] = PHASE_NEEDS_ATTENTION
-                    stored["process_state"] = "exited"
-                    stored["attention"] = dict(reason=exc.code, detail=exc.message, at=iso())
-                    ctx.save(stored)
-                    return {"ok": False, "error": exc.code, "job_id": job_id, "round": index}
-            if is_opencode:
-                stored["opencode_version"] = job["opencode_version"]
-                stored["opencode_compatibility"] = job["opencode_compatibility"]
-                stored_record["opencode_version"] = job["opencode_version"]
+            # Recheck at the actual launch boundary; a different active job may
+            # have reached the threshold since start/revise reserved us. The
+            # adapter decides whether any gate applies (Claude quota/inputs).
+            try:
+                transport.launch_checks(ctx, stored, stored_record)
+            except CliError as exc:
+                stored_record.update(status="not_started", finalized=True, exit_code=None,
+                                     claude_launch_pending=False, finished_at=iso())
+                stored["phase"] = PHASE_NEEDS_ATTENTION
+                stored["process_state"] = "exited"
+                stored["attention"] = dict(reason=exc.code, detail=exc.message, at=iso())
+                ctx.save(stored)
+                return {"ok": False, "error": exc.code, "job_id": job_id, "round": index}
+            transport.launch_stamp(job, stored, stored_record)
             stored_record["claude_launch_pending"] = True
             ctx.save(stored)
             try:
@@ -2546,47 +1919,21 @@ def worker_run(ctx, args, job_id, index, job_root, log):
                 stored_record["claude_launch_pending"] = False
                 ctx.save(stored)
                 raise
-            claude_identity = (opencode_backend.capture_identity(proc.pid, token, job["opencode_bin"]) if is_opencode else
-                               (kimi_backend.capture_identity(proc.pid, token, job["kimi_bin"])
-                               if is_kimi else capture_identity(proc.pid, token)))
+            claude_identity = transport.capture_child(job, proc.pid, token)
             stored_record["claude"] = claude_identity
             stored_record["claude_launch_pending"] = False
             ctx.save(stored)
     wlog(log, "claude_started", pid=proc.pid, identity_verified=bool(claude_identity.get("identity_verified")))
 
-    # No lock is held across the run itself.
-    timed_out = False
-    try:
-        deadline = None if timeout is None else time.monotonic() + timeout
-        while True:
-            try:
-                exit_code = proc.wait(timeout=0.4 if deadline is None else min(0.4, max(0.01, deadline - time.monotonic())))
-                break
-            except subprocess.TimeoutExpired:
-                if deadline is not None and time.monotonic() >= deadline:
-                    raise
-                monitor.tick()
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        wlog(log, "timeout", seconds=timeout)
-        killed = terminate_recorded(claude_identity)
-        wlog(log, "timeout_signal", state=killed.get("state"), signalled=killed.get("signalled"))
-        try:
-            exit_code = proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            exit_code = None
-    monitor.tick(complete=True)
+    # No lock is held across the run itself. Wait/timeout/termination is a
+    # reusable process action; only the metadata logger is bound here.
+    exit_code, timed_out = delegate_process.wait_with_timeout(
+        proc, timeout, monitor, claude_identity,
+        on_event=lambda name, **fields: wlog(log, name, **fields))
     duration = round(now() - started, 3)
     wlog(log, "claude_exited", exit_code=exit_code, duration_s=duration, timed_out=timed_out)
 
-    if is_opencode:
-        verification = opencode_backend.verify(job, record, stdout_path, exit_code if exit_code is not None else -1)
-    elif is_kimi:
-        verification = kimi_backend.verify(job, record, stdout_path, exit_code if exit_code is not None else -1)
-    else:
-        verification = verify_round(
-            job, stdout_path, exit_code if exit_code is not None else -1, prior_uuids, baseline_status
-        )
+    verification = transport.verify(job, record, stdout_path, exit_code if exit_code is not None else -1)
     if timed_out:
         verification["ok"] = False
         verification["needs_attention"] = False
@@ -2597,34 +1944,12 @@ def worker_run(ctx, args, job_id, index, job_root, log):
     with StateLock(ctx.state_dir):
         job = ctx.load(job_id)
         record = guarded_round(job, index, args)
-        record["exit_code"] = exit_code
-        record["finished_at"] = iso()
-        record["duration_s"] = duration
-        record["timed_out"] = timed_out
-        record["verification"] = verification
-        record["evidence_sha256"] = {"stdout": stdout_seal}
-        if (is_kimi or is_opencode) and not job.get("session_id") and verification.get("native_session_id"):
-            job["session_id"] = verification["native_session_id"]
-        record["status"] = "done" if verification["ok"] else ("timeout" if timed_out else "failed")
-        record["finalized"] = True
-        if verification.get("cli_version"):
-            job["cli_version"] = verification["cli_version"]
-        job["final_report"] = verification.get("report") or ""
-        job["process_state"] = "exited"
-        # An explicit stop/accept decision outranks whatever this round produced.
-        if job.get("phase") in TERMINAL_DECISION_PHASES or job.get("stop_requested"):
-            pass
-        elif verification["ok"]:
-            # Completion is never acceptance: Codex still has to review.
-            job["phase"] = PHASE_AWAITING_REVIEW
-            job.pop("attention", None)
-        else:
-            job["phase"] = PHASE_NEEDS_ATTENTION if verification["needs_attention"] else PHASE_FAILED
-            job["attention"] = {
-                "reason": ",".join(verification["reasons"][:6]) or "unverified",
-                "detail": "round %d was not verified; inspect evidence before revising" % index,
-                "at": iso(),
-            }
+        # Provider-neutral completion: the adapter verified; this only applies
+        # the completion state. Acceptance remains a separate Codex act.
+        delegate_completion.complete_round(
+            job, record, verification,
+            exit_code=exit_code, duration=duration, stdout_seal=stdout_seal,
+            timed_out=timed_out, native_session=transport.native_session, at=iso())
         ctx.save(job)
 
     wlog(log, "finalized", phase=job["phase"], ok=verification["ok"], reasons=verification["reasons"][:6])

@@ -12,11 +12,15 @@ the categories distinct: passing one does not imply any other.
   reservation, request deduplication, quota pausing, hooks, launch failure,
   timeout, schema compatibility/rejection, and evidence sealing.
 - **Command:** `python run_tests.py` (see [CONTRACTS.md](CONTRACTS.md#tests)).
-- **Current result:** 240 Python and 11 JavaScript tests pass locally against a
+- **Current result:** 243 Python and 11 JavaScript tests pass locally against a
   fixture-only environment. No paid model is called.
 - **Policy text:** a documentation check keeps the delegation triggers and
   co-installation precedence present in the Skill and READMEs. It is a text
   check, not a routing test.
+- **Transport seam:** `test_transport_seam.py` registers a fake adapter and
+  drives the real `cmd_start` -> detached worker -> `cmd_accept` path, proving
+  adapters are additive without editing provider-independent dispatch. It uses
+  a synthetic completion and a no-op child process, not a provider.
 - **Does not prove:** real provider behavior, model identity/effort enforcement
   against a live provider, OS sandboxing, GUI visibility, Linux/Windows
   execution, quota accounting, or stable route selection.

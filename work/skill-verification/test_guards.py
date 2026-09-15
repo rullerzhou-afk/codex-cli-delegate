@@ -1,17 +1,19 @@
 """Independent deterministic tests of failure paths; no real processes signalled."""
-import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 import uuid
 
-spec = importlib.util.spec_from_file_location('delegate_under_test', os.environ['DELEGATE_SCRIPT'])
-ct = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ct)
+import sys
+sys.path.insert(0, str(Path(os.environ['DELEGATE_SCRIPT']).resolve().parent))
+# Canonical import: recovery/identity moved into extracted modules that resolve
+# claude_task by its canonical name, so an under-test copy would miss patches.
+import claude_task as ct  # noqa: E402
 
 
 class Guards(unittest.TestCase):
@@ -64,6 +66,57 @@ class Guards(unittest.TestCase):
                 ct.cmd_revise(self.ctx, SimpleNamespace(job=self.job_id, prompt_file=str(prompt), recover=True))
         self.assertEqual(error.exception.code, 'live_process')
         launch.assert_not_called()
+
+    def test_wait_with_timeout_terminates_only_the_recorded_process(self):
+        class FakeProc:
+            def __init__(self):
+                self.calls = 0
+            def wait(self, timeout=None):
+                self.calls += 1
+                if self.calls == 1:
+                    raise subprocess.TimeoutExpired('fake', timeout)
+                return 0
+
+        class FakeMonitor:
+            def tick(self, complete=False):
+                pass
+
+        events = []
+        record = {'pid': 4242, 'run_token': 't', 'identity_verified': True}
+        clock = iter([0, 5])
+        with patch.object(ct.delegate_process, 'terminate_recorded',
+                          return_value={'state': 'exited', 'signalled': True}) as term, \
+             patch.object(ct.delegate_process.time, 'monotonic',
+                          side_effect=lambda: next(clock, 10 ** 9)):
+            exit_code, timed_out = ct.delegate_process.wait_with_timeout(
+                FakeProc(), 1, FakeMonitor(), record,
+                on_event=lambda name, **fields: events.append(name))
+        self.assertTrue(timed_out)
+        term.assert_called_once_with(record)
+        self.assertEqual(exit_code, 0)
+        self.assertIn('timeout', events)
+
+    def test_stop_transition_phases_and_accepted_semantics(self):
+        blocker = [{'round': 0, 'process': 'worker', 'state': 'unverifiable'}]
+        accepted = {'phase': 'accepted', 'owner': 'o', 'rounds': [{'round': 0, 'finalized': True}]}
+        ct.delegate_recovery.stop_transition(accepted, blocker, [])
+        self.assertEqual(accepted['phase'], 'accepted')
+        self.assertNotIn('accepted', ct.RESERVING_PHASES)
+        self.assertEqual(accepted['process_state'], 'stop_incomplete')
+        self.assertNotIn('reservation retained', accepted['attention']['detail'])
+        self.assertFalse(accepted['stopped']['complete'])
+
+        reserving = {'phase': 'awaiting_review', 'owner': 'o', 'rounds': [{'round': 0, 'finalized': True}]}
+        ct.delegate_recovery.stop_transition(reserving, blocker, [])
+        self.assertEqual(reserving['phase'], 'needs_attention')
+        self.assertIn('reservation retained', reserving['attention']['detail'])
+
+        running = {'phase': 'running', 'owner': 'o', 'rounds': [{'round': 0, 'finalized': False, 'status': 'running'}]}
+        ct.delegate_recovery.stop_transition(running, [], [{'process': 'worker'}])
+        self.assertEqual(running['phase'], 'stopped')
+        self.assertEqual(running['process_state'], 'stopped')
+        self.assertTrue(running['rounds'][0]['finalized'])
+        self.assertTrue(running['stopped']['complete'])
 
 
 if __name__ == '__main__':
