@@ -4,7 +4,9 @@ The fake is registered by name and enters through the real provider-independent
 commands: ``cmd_start`` creates the job and launches the worker, which resolves
 the fake adapter, then Codex acceptance completes the job. The worker subprocess
 finds the fake via a test-side ``sitecustomize`` on ``PYTHONPATH``; no product
-lifecycle code knows about it. The job fixture is not hand-written here.
+lifecycle code knows about it. The job fixture is not hand-written here. This
+test is process-identity-sensitive because ``cmd_start`` launches the real
+detached worker and records its OS process identity.
 """
 import os
 from pathlib import Path
@@ -26,6 +28,8 @@ import claude_task as ct  # noqa: E402
 import delegate_transport  # noqa: E402
 import fake_transport  # noqa: E402
 
+PROCESS_IDENTITY = True
+
 
 class TransportSeam(unittest.TestCase):
     def setUp(self):
@@ -33,6 +37,7 @@ class TransportSeam(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         delegate_transport.register(fake_transport.FakeTransport())
+        self.addCleanup(delegate_transport._REGISTRY.pop, "fake", None)
         # The detached worker is a fresh interpreter; a test-side sitecustomize
         # registers the same adapter there without touching product lifecycle.
         hook = self.root / "hook"
@@ -50,9 +55,6 @@ class TransportSeam(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.ctx = ct.Context(str(self.root / "state"), owner="fake-owner", claude_bin="/bin/false")
-
-    def tearDown(self):
-        delegate_transport._REGISTRY.pop("fake", None)
 
     def test_fake_transport_start_worker_completion_and_acceptance(self):
         cwd = self.root / "checkout"

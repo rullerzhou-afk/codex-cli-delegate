@@ -11,7 +11,6 @@ These read committed current-shape fixtures and prove that:
 No model is called and no worker is launched here.
 """
 import copy
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -26,9 +25,8 @@ from unittest.mock import patch
 SCRIPT = Path(os.environ["DELEGATE_SCRIPT"]).resolve()
 sys.path.insert(0, str(SCRIPT.parent))
 
-# Import the canonical module: job-state schema/validation moved into
-# delegate_job_store, which reads its constants from this module instance, so a
-# second under-test copy would raise a different CliError class.
+# Import the canonical module: extracted helpers resolve ``claude_task`` by its
+# canonical name, so patches on a second under-test copy would be missed.
 import claude_task as ct  # noqa: E402
 
 import review_evidence as evidence  # noqa: E402

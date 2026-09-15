@@ -38,7 +38,8 @@ REFERENCE_REQUIRED = {
     "recover_previously_started": ["external jobs its tools previously started"],
     "host_native_outside": ["neither observes nor controls that worker"],
     "reservation_release": ["through release of its reservation"],
-    "unavailable_route": ["external route is unavailable, report it"],
+    "unavailable_route": ["external route is unavailable, report it",
+                          "do not silently substitute a route, model, or account"],
     "scenarios_non_proof": ["human-observation aids", "not proof of stable model routing or quota savings"],
 }
 

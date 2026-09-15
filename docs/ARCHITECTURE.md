@@ -5,11 +5,15 @@ The runtime keeps one public surface (CLI `scripts/delegate.py`, MCP
 responsibilities behind small modules. `claude_task.py` remains the composition
 root. Two distinct boundaries apply:
 
-- **Read/import aliases remain** through `claude_task` for the extracted names,
-  and the runtime *function* patch points actually preserved
-  (`identity_state`, `terminate_recorded`, `reconcile`, `launch_transaction`,
-  `worker_run`, `finalize_worker_failure`, `build_claude_argv`, `verify_round`,
-  `subprocess`) still resolve through it.
+- **Read/import aliases remain** through `claude_task` for the extracted names.
+  Composition-root callers still use its aliases for `identity_state`,
+  `terminate_recorded`, `reconcile`, `launch_transaction`, `worker_run`,
+  `finalize_worker_failure`, `build_claude_argv`, `verify_round`, and
+  `subprocess`. Extracted module internals resolve their own names locally; for
+  example, tests of `delegate_process.wait_with_timeout` patch
+  `delegate_process.terminate_recorded`. `delegate_recovery` deliberately calls
+  back through `claude_task.identity_state` for its retained orchestration patch
+  point.
 - **Schema policy is owned and mutated in `delegate_job_store`.** Its namespace/
   version constants and migration registry are defined there, so assigning
   `claude_task.JOB_STATE_MIGRATIONS`/`JOB_STATE_SUPPORTED_VERSIONS` is no longer

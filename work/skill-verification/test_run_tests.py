@@ -53,6 +53,7 @@ class Selection(unittest.TestCase):
         marked = {entry["path"]: entry["process_identity"]
                   for suite in discovered for entry in suite["files"]}
         self.assertTrue(marked.get("work/skill-verification/test_blackbox_contract.py"))
+        self.assertTrue(marked.get("work/skill-verification/test_transport_seam.py"))
         self.assertFalse(marked.get("work/skill-verification/test_schema_contract.py"))
 
     def test_javascript_discovery_finds_both_files(self):

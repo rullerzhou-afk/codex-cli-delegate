@@ -165,8 +165,10 @@ shape, needs no version bump, and is persisted by current writers. It is not a
 precedent for changing other persisted fields.
 
 1. Any change to a persisted job-state *field or meaning* beyond that additive
-   metadata requires an `N -> N+1` entry in `claude_task.JOB_STATE_MIGRATIONS`
-   and a bumped `JOB_STATE_SCHEMA_VERSION`/`JOB_STATE_SUPPORTED_VERSIONS`.
+   metadata requires an `N -> N+1` entry in
+   `delegate_job_store.JOB_STATE_MIGRATIONS` and bumped
+   `delegate_job_store.JOB_STATE_SCHEMA_VERSION`/
+   `delegate_job_store.JOB_STATE_SUPPORTED_VERSIONS` values.
 2. A regenerated post-migration fixture must be committed alongside it; the
    migration itself must write the namespace so no supported version carries an
    absent namespace.
