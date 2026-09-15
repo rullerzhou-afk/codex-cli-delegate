@@ -11,6 +11,10 @@ import time
 import unittest
 import uuid
 
+# CI marker: this module launches detached workers and inspects local process
+# identity, so it runs in the macOS process-identity CI job.
+PROCESS_IDENTITY = True
+
 SCRIPT = Path(os.environ['DELEGATE_SCRIPT']).resolve()
 FAKE = Path(__file__).with_name('fake_claude.py').resolve()
 
@@ -167,6 +171,20 @@ class Contract(unittest.TestCase):
 
     def test_stop_and_timeout(self):
         a = self.start(tag='will-stop', delay=10)
+        # Stopping is only meaningful once the round is genuinely running: the
+        # worker has launched Claude and committed Claude's identity. Stopping
+        # during the launch fence can make the worker abort and exit while the
+        # command observes it, which the product correctly reports as an
+        # unverified (fail-closed) process rather than a clean stop.
+        statefile = self.state / 'jobs' / a['job_id'] / 'job.json'
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            record = json.loads(statefile.read_text())['rounds'][0]
+            if (record.get('claude') or {}).get('identity_verified'):
+                break
+            time.sleep(0.05)
+        else:
+            self.fail('claude identity never verified within 8 seconds')
         stopped = self.call('stop', a['job_id'])
         self.assertEqual(stopped['phase'], 'stopped', stopped)
         b = self.start('b', timeout=1, delay=5)

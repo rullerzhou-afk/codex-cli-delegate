@@ -10,6 +10,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+# CI marker: CommandIntegration launches a detached worker and observes local
+# process identity, so this module runs in the macOS process-identity CI job.
+PROCESS_IDENTITY = True
+
 SCRIPT = Path(os.environ['DELEGATE_SCRIPT']).resolve()
 sys.path.insert(0, str(SCRIPT.parent))
 import review_evidence as evidence

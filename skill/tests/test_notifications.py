@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import claude_task as ct
 import delegate_notify as dn
 
+# CI marker: notification watchers are local processes and delivery is
+# macOS-only, so this module runs in the macOS process-identity CI job.
+PROCESS_IDENTITY = True
+
 
 class Notifications(unittest.TestCase):
     def setUp(self):

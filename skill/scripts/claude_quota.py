@@ -109,9 +109,17 @@ def refresh_from_jobs(state_dir, home=None):
     import timestamp, explicitly labelled; never refresh unchanged bytes to now.
     """
     home = home or account_home(); candidates = []
+    # Keep quota import advisory, but never interpret fields from a malformed,
+    # foreign, or unsupported job-state document. Import lazily to avoid a
+    # module cycle during claude_task startup.
+    from claude_task import CliError, migrate_job_state, validate_job_schema
     for path in (Path(state_dir) / 'jobs').glob('*/job.json'):
         if path.parent.is_symlink(): continue
-        job = read(path)
+        try:
+            job = migrate_job_state(read(path))
+            validate_job_schema(job)
+        except (CliError, OSError):
+            continue
         if job.get('backend', 'claude') != 'claude': continue
         if job.get('claude_config_dir', os.path.realpath(str(Path.home() / '.claude'))) != home: continue
         for record in (job.get('rounds') or [])[-1:]:

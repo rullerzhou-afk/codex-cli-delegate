@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  python-3.12-fixtures:
+    # Portable fixture coverage. Process-identity modules are excluded here and
+    # run in macos-process-identity instead; this job states that explicitly
+    # rather than implying the excluded modules passed.
+    name: python-3.12-fixtures
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install pinned dependencies
+        run: python -m pip install -r skill/requirements.txt
+      - name: Run portable fixture suite (Python + JavaScript)
+        run: python run_tests.py --exclude-process-identity --json-out aggregate-fixtures.json
+      - name: State exactly what this job excluded
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          path = pathlib.Path("aggregate-fixtures.json")
+          if not path.is_file():
+              print("no aggregate produced")
+              raise SystemExit(0)
+          data = json.loads(path.read_text())
+          info = data["process_identity"]
+          print("process_identity mode:", info["mode"])
+          for module in info["excluded_modules"]:
+              print("EXCLUDED (covered by macos-process-identity):", module)
+          print("excluded_javascript:", info["excluded_javascript"])
+          print("This job does not claim the excluded process-identity modules passed.")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aggregate-fixtures
+          path: aggregate-fixtures.json
+          if-no-files-found: warn
+
+  macos-process-identity:
+    # Fixture runs that launch detached workers and inspect local process
+    # identity. Failures are red: nothing here silently skips a module.
+    #
+    # This job's name is the intended check label, but a workflow file cannot
+    # make a check required. Enforcement (GitHub branch protection or a ruleset
+    # that selects this check as required) is NOT configured by this repo-only
+    # change and is therefore NOT TESTED. A maintainer must select it as a
+    # required status check for that enforcement to exist.
+    name: macos-process-identity
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pinned dependencies
+        run: python -m pip install -r skill/requirements.txt
+      - name: Run process-identity suite
+        run: python run_tests.py --only-process-identity --json-out aggregate-process-identity.json
+      - name: Note enforcement is not configured by this workflow
+        if: always()
+        run: |
+          echo "This job is intended to be selected as a required status check."
+          echo "Branch protection / ruleset enforcement is NOT configured by this repo-only change (NOT TESTED)."
+          echo "A failure in this job is red; it is never silently skipped."
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: aggregate-process-identity
+          path: aggregate-process-identity.json
+          if-no-files-found: warn

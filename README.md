@@ -105,28 +105,20 @@ Task prompts, CLI streams, credentials, configuration, and task evidence are **n
 
 ## Tests
 
-These checks use local fixtures and fake CLIs, without calling a paid model. `DELEGATE_SCRIPT` points to the implementation module because some tests inspect its internals; user commands use `delegate.py`:
+All checks use local fixtures and fake CLIs, without calling a paid model. Run the complete repository suite with one command and one machine-readable aggregate:
 
 ```sh
-python3.12 -m venv .venv
-.venv/bin/python -m pip install -r skill/requirements.txt
-export PYTHONPATH="$PWD/skill/scripts${PYTHONPATH:+:$PYTHONPATH}"
-export DELEGATE_SCRIPT="$PWD/skill/scripts/claude_task.py"
-export PYTHONDONTWRITEBYTECODE=1
-.venv/bin/python -m unittest discover -s work/skill-verification -p 'test_*.py'
-.venv/bin/python -m unittest discover -s work/skill-v2 -p 'test_*.py'
-.venv/bin/python -m unittest discover -s work/skill-kimi -p 'test_*.py'
-.venv/bin/python -m unittest discover -s work/skill-kimi-hooks -p 'test_*.py'
-.venv/bin/python -m unittest discover -s work/skill-evidence -p 'test_*.py'
-.venv/bin/python -m unittest discover -s skill/tests -p 'test_*.py'
-node --test skill/tests/test_remote_codex.cjs skill/tests/test_opencode_hook.mjs
+export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinned dependencies
+"$CLAUDE_DELEGATE_PYTHON" run_tests.py
 ```
 
-The previous complete suite passed 164 Python tests and 11 JavaScript tests, including real MCP protocol connections and the pinned SDK driven by a fake CLI. Process-identity tests require permission to inspect local processes; restricted environments can produce false failures.
+`run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-This project is derived from an implementation exercised with real macOS read/write, same-session revision, and hook tests. A separate three-round macOS SDK smoke verified same-process continuation, same-session recovery after restart, context retention, Stop events, and cache reads. See [validation boundaries](skill/references/mcp.md#validation-and-maintenance). Those runs are not portable proof of other machines or later CLI versions. Linux/Windows local MCP/SDK execution and deliberately induced provider outages have not been validated. Detailed backend references currently include Chinese operating notes.
+Current local aggregate: **234 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
-The version compatibility update added five targeted tests. Its 23 OpenCode tests, 15 CLI contract tests, and 11 JavaScript checks passed. The installed 1.18.30 executable also passed the real option probe; other version strings and changed record structures were tested with fixtures, not real upgraded provider runs.
+The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the Phase 2 refactor.
+
+Evidence categories and unsupported claims are separated in [validation boundaries](docs/VALIDATION.md). Real macOS provider runs, notification checks, and known limits are recorded there; they are not portable proof of other machines or later CLI versions.
 
 ## Origins and license
 
@@ -134,10 +126,12 @@ Created and maintained by Ruller_Lulu. Event mapping, plugin coexistence, and ex
 
 MIT licensed. See [LICENSE](LICENSE). This is an independent community project, not an official product or endorsement from OpenAI, Anthropic, Moonshot AI, DeepSeek, or OpenCode.
 
-The September 13 task-continuation update passed 173 Python and 11 JavaScript checks with local fixtures, including MCP parameter transport, configuration refresh, preserved session/acceptance history, checkout conflicts, and long/comma command rules. Its real Claude smoke passed the first round, then the provider rejected the second message (`reasoning_extraction`) before executing the newly authorized command. Real execution of the new rule and post-accept continuation therefore remain **NOT TESTED**; the refusal was retained and the test job stopped, without switching model/account/session to retry it.
+Historical per-feature results and the task-continuation `reasoning_extraction`
+limit are recorded in the [changelog](CHANGELOG.md) and
+[validation boundaries](docs/VALIDATION.md).
 
 ### Tool capability update (2026-09-13)
 
 Kimi's default read-only selection includes ReadMediaFile for image/video input; WebSearch, FetchURL and TodoList are selectable. Claude supports NotebookEdit and explicitly authorized WebFetch/WebSearch. OpenCode adds webfetch/websearch/todowrite/lsp, with write/apply_patch aliases mapped to edit. CLI and MCP share one catalog; `scripts/delegate.py capabilities` lists it offline. See [capabilities and existing-session limits](skill/references/tools.md).
 
-43 focused local checks passed. One real Kimi 0.42.0 task used ReadMediaFile, returned image content, and correctly identified a synthetic image's colors and shapes without Bash. New web/notebook/LSP tools have not been exercised against their real providers. Existing Kimi sessions retain their saved tool profile; this update does not change it.
+One real Kimi 0.42.0 task used ReadMediaFile, returned image content, and correctly identified a synthetic image's colors and shapes without Bash. New web/notebook/LSP tools have not been exercised against their real providers. Existing Kimi sessions retain their saved tool profile; this update does not change it.

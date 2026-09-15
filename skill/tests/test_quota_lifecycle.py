@@ -8,6 +8,10 @@ import tempfile
 import unittest
 import uuid
 
+# CI marker: launches detached fake-CLI workers and observes local process
+# identity, so it runs in the macOS process-identity CI job.
+PROCESS_IDENTITY = True
+
 SCRIPT=Path(__file__).resolve().parents[1]/'scripts/claude_task.py'
 FAKE=r'''#!/usr/bin/env python3
 import json,os,re,sys,time,uuid

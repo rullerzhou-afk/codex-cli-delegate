@@ -8,7 +8,14 @@ import sys
 import time
 import uuid
 
-if "--version" in sys.argv:
+version_flags = {"--version", "-v"}.intersection(sys.argv[1:])
+if version_flags and sys.argv[1:] not in (["--version"], ["-v"]):
+    print("unsupported simulated version-probe arguments", file=sys.stderr)
+    raise SystemExit(2)
+if version_flags:
+    # Fixture fidelity and test speed: the pinned SDK probes the CLI with "-v"
+    # during connect(). Answering it avoids a wasted stdin-reading child. This
+    # is not the cause of the restricted-sandbox identity refusal.
     print("2.1.261 (simulated Claude Code)")
     raise SystemExit()
 

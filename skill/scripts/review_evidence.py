@@ -13,9 +13,34 @@ MAX_FILE_BYTES = 128 * 1024 * 1024
 VERIFICATION_FIELDS = ('model_verified', 'effort_verified', 'session_ok',
                        'assistant_models', 'efforts', 'ok', 'reasons')
 
+# Evidence-manifest schema namespace and versions. Deliberately distinct from
+# the job-state namespace in claude_task.py. Accepted manifests are immutable:
+# export creates each provenance.json with O_EXCL and verify never rewrites it.
+# An unsupported (typically newer) version fails closed instead of guessing.
+SCHEMA_NAMESPACE = 'codex-cli-delegate/evidence-manifest'
+SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION,)
+
 
 class EvidenceError(ValueError):
     pass
+
+
+def manifest_schema(manifest):
+    """Return the manifest's schema version or raise on an unsupported one.
+
+    The namespace is required on new manifests and tolerated as absent on
+    legacy ones; a manifest that declares a different namespace is refused.
+    """
+    if not isinstance(manifest, dict):
+        raise EvidenceError('Provenance manifest is not an object')
+    namespace = manifest.get('schema_namespace')
+    if namespace is not None and namespace != SCHEMA_NAMESPACE:
+        raise EvidenceError('Unsupported provenance-manifest schema namespace')
+    version = manifest.get('schema')
+    if type(version) is not int or version not in SUPPORTED_SCHEMA_VERSIONS:
+        raise EvidenceError('Unsupported provenance-manifest schema version')
+    return version
 
 
 def digest(data):
@@ -156,7 +181,8 @@ def export(ctx, job, round_index, destination, subject, created_at):
         raise EvidenceError('Provide the exact reviewed commit or document version as --subject')
     root = Path(ctx.job_dir(job['job_id']))
     metadata, files, sources = round_sources(job, round_index, root)
-    manifest = dict(schema=1, created_at=created_at, **metadata,
+    manifest = dict(schema=SCHEMA_VERSION, schema_namespace=SCHEMA_NAMESPACE,
+                    created_at=created_at, **metadata,
                     subject=dict(value=subject.strip(), origin='declared_by_exporter'),
                     sources=sources)
     files['INDEX.md'] = index_bytes(manifest)
@@ -189,7 +215,8 @@ def verify(directory, job=None, round_index=None, source_root=None, expected_sha
         raise EvidenceError('Provenance manifest differs from the saved digest')
     try:
         manifest = json.loads(raw)
-        if (manifest['schema'] != 1 or not isinstance(manifest['sources'], list) or not manifest['sources']
+        manifest_schema(manifest)
+        if (not isinstance(manifest['sources'], list) or not manifest['sources']
                 or not isinstance(manifest['files'], dict) or type(manifest['round']) is not int
                 or manifest['round'] < 0 or not isinstance(manifest['job_id'], str)
                 or manifest['subject']['origin'] != 'declared_by_exporter'

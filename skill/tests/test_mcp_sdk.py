@@ -14,6 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import claude_task as ct
 from delegate_service import DelegateService
 
+# CI marker: SDK rounds launch detached processes whose identity is observed
+# locally, so this module runs in the macOS process-identity CI job.
+PROCESS_IDENTITY = True
+
 
 class SDKLifecycle(unittest.TestCase):
     def setUp(self):

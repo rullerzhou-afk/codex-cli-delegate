@@ -41,11 +41,9 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - Pi、ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-此前完整套件通过 164 项 Python 测试和 11 项 JavaScript 测试，包含真实 MCP 协议连接及由模拟 CLI 驱动的固定版本 SDK。进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功；本次在允许读取后复验通过。
+当前统一测试结果为 **234 项 Python 和 11 项 JavaScript 全部通过**。使用 [统一测试入口](run_tests.py) 可输出一份机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
 
-本地测试方法见 [英文 README](README.md#tests)，不调用付费模型。另有 macOS 真实三轮 SDK 验证：同进程返工、重启后恢复原会话、上下文保留、文件输出、Stop hooks 和缓存读取均有实际记录；不由此推算订阅额度节省比例。真实 API 故障、其他 CLI 版本和 Linux/Windows 本机 MCP/SDK 执行不能用本地自动化测试结果代替。详细边界见 [MCP 验证说明](skill/references/mcp.md#validation-and-maintenance)。
-
-本次版本兼容更新新增 5 项针对性测试；23 项 OpenCode、15 项 CLI 和 11 项 JavaScript 检查通过。本机 1.18.30 的实际参数探测通过，其他版本号与不兼容记录使用模拟数据验证，没有把它当成真实升级后模型运行的证明。
+历史分项数量统一保留在[更新记录](CHANGELOG.md)，不再与当前总数混排。已有 macOS 真实 SDK、通知和提供方验证属于不同证据类别，不能代替其他机器、后续 CLI 版本或 CI 的验证。详见[公开合同](docs/CONTRACTS.md)和[验证边界](docs/VALIDATION.md)。
 
 ## 来源与许可证
 
@@ -57,12 +55,12 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要时自动刷新空闲 SDK 连接并保留原 session。已验收任务可以继续修改，旧验收记录保留，新一轮重新检查目录占用并验收。命令规则改用 JSON 数组传递，支持长路径和逗号。旧 MCP 可用安装目录虚拟环境运行 `scripts/delegate.py revise`，无需重派任务。
 
-本次 173 项 Python、11 项 JavaScript 本地检查通过。真实 Claude 测试第一轮通过，第二轮在执行新增授权命令前被服务端以 `reasoning_extraction` 拒绝；新增授权真实执行与验收后续接标为 **NOT TESTED**，没有用模拟测试冒充真实通过，也没有换模型、账号或会话重试拒绝。日常用户/项目授权和自定义 hooks 仍不自动继承，配套 SDK 依赖保持固定安装。
+对应的历史测试数量见[更新记录](CHANGELOG.md)。真实 Claude 测试第一轮通过，第二轮在执行新增授权命令前被服务端以 `reasoning_extraction` 拒绝；新增授权真实执行与验收后续接标为 **NOT TESTED**，没有用模拟测试冒充真实通过，也没有换模型、账号或会话重试拒绝。日常用户/项目授权和自定义 hooks 仍不自动继承，配套 SDK 依赖保持固定安装。
 
-自动回传新增验证：31 项通知检查和 15 项 MCP/SDK 检查通过；一条隔离终态事件已实际回到原 Codex 活跃任务，并核对入队回执。该检查不调用外部模型；未测试空闲任务、关闭应用或重启恢复。需本机 Codex CLI 提供 `queue --thread --message`。回传不代表自动验收通过，仍需核对当前轮次、证据和用户授权。
+自动回传的历史测试数量见[更新记录](CHANGELOG.md)；一条隔离终态事件已实际回到原 Codex 活跃任务，并核对入队回执。该检查不调用外部模型；未测试空闲任务、关闭应用或重启恢复。需本机 Codex CLI 提供 `queue --thread --message`。回传不代表自动验收通过，仍需核对当前轮次、证据和用户授权。
 
 ### 工具能力补全（2026-09-13）
 
 Kimi 默认增加 ReadMediaFile，支持图片/视频；可选 WebSearch、FetchURL、TodoList。Claude 增加 NotebookEdit 和按任务授权的 WebFetch/WebSearch；OpenCode 增加 webfetch/websearch/todowrite/lsp，write/apply_patch 输入归一到 edit 权限。CLI 与 MCP 共用清单，`scripts/delegate.py capabilities` 可离线查询。[能力与旧会话边界](skill/references/tools.md)。
 
-43 项相关本地检查通过；一次真实 Kimi 0.42.0 任务调用 ReadMediaFile，工具返回图片内容，并正确识别自制图片的颜色形状，没有给 Bash。新增网页/Notebook/LSP 尚未做真实提供方调用验证。更新不会给旧 Kimi 会话更换已保存的工具 profile。
+相关历史测试数量见[更新记录](CHANGELOG.md)。一次真实 Kimi 0.42.0 任务调用 ReadMediaFile，工具返回图片内容，并正确识别自制图片的颜色形状，没有给 Bash。新增网页/Notebook/LSP 尚未做真实提供方调用验证。更新不会给旧 Kimi 会话更换已保存的工具 profile。

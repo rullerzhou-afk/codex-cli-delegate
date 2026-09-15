@@ -1,4 +1,5 @@
 import copy, hashlib, importlib, json, os, sys, tempfile, unittest
+from unittest.mock import patch
 from pathlib import Path
 SCRIPT=Path(os.environ.get('DELEGATE_SCRIPT', 'work/skill-kimi/claude-delegate/scripts/claude_task.py')).resolve()
 sys.path.insert(0,str(SCRIPT.parent))
@@ -70,7 +71,7 @@ class KimiContract(unittest.TestCase):
   u=dict(type='usage.record',agentId='main',usageScope='turn',usage=dict(output=99));m.native_row(u);self.assertEqual(m.usage_count,0)
   m.native_row(self.native[1]);u['agentId']='child';m.native_row(u);self.assertEqual(m.usage_count,0)
  def test_claude_permission_rules_rejected(self):
-  with self.assertRaises(ct.CliError) as got:k.prepare('/bin/true',[],['Bash(python*)'])
+  with patch.object(k.sys,'platform','darwin'), self.assertRaises(ct.CliError) as got:k.prepare('/bin/true',[],['Bash(python*)'])
   self.assertEqual(got.exception.code,'kimi_permissions')
 
 class KimiIdentity(unittest.TestCase):

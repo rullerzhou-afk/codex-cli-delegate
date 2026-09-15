@@ -48,7 +48,26 @@ import uuid
 # Constants
 # --------------------------------------------------------------------------- #
 
-SCHEMA_VERSION = 1
+# Job-state schema namespace and versions. Deliberately distinct from the
+# evidence-manifest namespace in review_evidence.py: a change to one never
+# implies a change to the other. Both are versioned and fail closed on unknown
+# versions. See docs/CONTRACTS.md.
+JOB_STATE_SCHEMA_NAMESPACE = "codex-cli-delegate/job-state"
+JOB_STATE_SCHEMA_VERSION = 1
+JOB_STATE_SUPPORTED_VERSIONS = frozenset((JOB_STATE_SCHEMA_VERSION,))
+# Pre-namespace v1 documents still have ``schema: 1`` but no
+# ``schema_namespace``. They are read as this version and gain the namespace
+# only when a later save persists them. A missing version or a document that
+# declares a different namespace always fails closed.
+JOB_STATE_LEGACY_NO_NAMESPACE_VERSION = 1
+# Legacy alias: callers and fixtures that referenced the old constant name.
+SCHEMA_VERSION = JOB_STATE_SCHEMA_VERSION
+
+# Registry of {from_version: migrate_fn(job) -> job}. Adding or changing a
+# persisted job-state field REQUIRES an N -> N+1 entry here plus a regenerated
+# post-migration fixture. The read path applies migrations before the
+# supported-version check, in memory; a read never rewrites the job file.
+JOB_STATE_MIGRATIONS = {}
 
 MODEL = "claude-opus-5"
 EFFORT = "max"
@@ -235,6 +254,91 @@ def copy_private(src, dst, max_bytes):
     with open(src, "rb") as handle:
         data = handle.read(max_bytes + 1)
     atomic_write_bytes(dst, data)
+
+
+# --------------------------------------------------------------------------- #
+# Job-state schema (migration on read, fail closed)
+# --------------------------------------------------------------------------- #
+
+
+def migrate_job_state(job):
+    """Apply registered N -> N+1 migrations in memory, then return the job.
+
+    A version with no registered migration is returned untouched so the
+    supported-version check decides whether it is acceptable. A cycle is a
+    programming error and is refused rather than looped forever.
+    """
+    if not isinstance(job, dict):
+        raise CliError("bad_state", "job state is not a JSON object")
+    validate_job_namespace(job)
+    version = job.get("schema")
+    seen = set()
+    while type(version) is int and version in JOB_STATE_MIGRATIONS:
+        if version in seen:
+            raise CliError("bad_state", "job-state migration loop at schema %r" % (version,))
+        seen.add(version)
+        next_version = version + 1
+        try:
+            job = JOB_STATE_MIGRATIONS[version](job)
+        except CliError:
+            raise
+        except Exception as exc:
+            raise CliError("bad_state", "job-state migration failed: %s" % type(exc).__name__)
+        if not isinstance(job, dict):
+            raise CliError("bad_state", "job-state migration did not return an object")
+        validate_job_namespace(job)
+        version = job.get("schema")
+        if type(version) is not int or version != next_version:
+            raise CliError(
+                "bad_state",
+                "job-state migration must advance exactly one version",
+                expected_schema=next_version,
+                actual_schema=version,
+            )
+    return job
+
+
+def validate_job_namespace(job):
+    """Reject a declared foreign namespace before any migration runs."""
+    namespace = job.get("schema_namespace")
+    if namespace is not None and namespace != JOB_STATE_SCHEMA_NAMESPACE:
+        raise CliError(
+            "unsupported_schema",
+            "foreign job-state schema namespace",
+            schema=job.get("schema"),
+            namespace=namespace,
+            expected=JOB_STATE_SCHEMA_NAMESPACE,
+        )
+
+
+def validate_job_schema(job):
+    """Fail closed unless the job carries a supported job-state schema.
+
+    A document that declares a different ``schema_namespace`` is refused. An
+    absent namespace is tolerated only for the legacy pre-namespace v1 shape
+    and is left untouched on read; any present but unsupported version or type
+    is refused so a newer or foreign writer is never silently misinterpreted.
+    """
+    validate_job_namespace(job)
+    namespace = job.get("schema_namespace")
+    version = job.get("schema")
+    if type(version) is not int or version not in JOB_STATE_SUPPORTED_VERSIONS:
+        raise CliError(
+            "unsupported_schema",
+            "unsupported job-state schema version",
+            schema=job.get("schema"),
+            namespace=JOB_STATE_SCHEMA_NAMESPACE,
+            supported=sorted(JOB_STATE_SUPPORTED_VERSIONS),
+        )
+    if namespace is None and version != JOB_STATE_LEGACY_NO_NAMESPACE_VERSION:
+        raise CliError(
+            "unsupported_schema",
+            "job state is missing its schema namespace",
+            schema=version,
+            namespace=None,
+            expected=JOB_STATE_SCHEMA_NAMESPACE,
+        )
+    return version
 
 
 # --------------------------------------------------------------------------- #
@@ -625,11 +729,20 @@ class Context:
         if not os.path.isfile(path):
             raise CliError("not_found", "no such job: %s" % job_id)
         try:
-            return read_json(path)
+            job = read_json(path)
         except (OSError, ValueError) as exc:
             raise CliError("bad_state", "unreadable job state: %s" % exc)
+        job = migrate_job_state(job)
+        validate_job_schema(job)
+        return job
 
     def save(self, job):
+        # Disk-loaded jobs pass validate_job_schema before reaching this point.
+        # The defaults also support new in-process objects built by internal
+        # callers and tests; they are not a compatibility path for schema-less
+        # files on disk. A legacy v1 object gains the namespace on its next save.
+        job.setdefault("schema", JOB_STATE_SCHEMA_VERSION)
+        job.setdefault("schema_namespace", JOB_STATE_SCHEMA_NAMESPACE)
         job["updated_at"] = iso()
         write_json(self.job_file(job["job_id"]), job)
 
@@ -654,10 +767,20 @@ class Context:
             path = os.path.join(self.jobs_dir, name)
             if os.path.islink(path) or not os.path.isdir(path):
                 continue
-            try:
-                out.append(read_json(os.path.join(path, "job.json")))
-            except (OSError, ValueError):
+            job_file = os.path.join(path, "job.json")
+            if not os.path.isfile(job_file):
+                # A crash before the first save can leave an empty directory,
+                # but no persisted reservation exists in that case.
                 continue
+            # Use the same reader as direct job operations. A malformed,
+            # foreign, or newer state may still represent a reservation, so
+            # enumeration fails closed instead of silently starting over it.
+            try:
+                out.append(self.load(name))
+            except CliError as exc:
+                extra = dict(exc.extra)
+                extra.setdefault("job_id", name)
+                raise CliError(exc.code, exc.message, **extra)
         return out
 
 
@@ -1561,6 +1684,7 @@ def cmd_start(ctx, args):
 
         job = {
             "schema": SCHEMA_VERSION,
+            "schema_namespace": JOB_STATE_SCHEMA_NAMESPACE,
             "job_id": job_id,
             "owner": owner,
             "cwd": cwd,
@@ -2010,14 +2134,19 @@ def cmd_stop(ctx, args):
                 job["phase"] = PHASE_STOPPED
             job["process_state"] = "stopped"
         else:
-            # Something is alive or unverifiable: keep the checkout reserved and
-            # say so, rather than reporting a stop that did not happen.
+            # Something is alive or unverifiable. A phase that still reserves
+            # the checkout says so; an already-terminal phase (accepted or
+            # stopped) stays terminal and reservation-free, so its detail must
+            # not claim a reservation it does not hold.
             if job.get("phase") not in TERMINAL_DECISION_PHASES:
                 job["phase"] = PHASE_NEEDS_ATTENTION
             job["process_state"] = "stop_incomplete"
+            reservation_held = job["phase"] in RESERVING_PHASES
             job["attention"] = {
                 "reason": "stop_incomplete",
-                "detail": "processes could not be confirmed stopped; reservation retained",
+                "detail": ("processes could not be confirmed stopped; reservation retained"
+                           if reservation_held else
+                           "processes could not be confirmed stopped; terminal job remains reservation-free"),
                 "at": iso(),
                 "remaining": remaining,
             }

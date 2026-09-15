@@ -76,7 +76,7 @@ class Quota(unittest.TestCase):
         self.assertEqual(q.status(self.root,self.home,10003)['blocking_windows'],['seven_day'])
     def test_import_reads_latest_observation_of_every_window(self):
         job_root=self.root/'jobs'/'fixture';job_root.mkdir(parents=True)
-        job_root.joinpath('job.json').write_text(json.dumps(dict(session_id='s', claude_config_dir=self.home,
+        job_root.joinpath('job.json').write_text(json.dumps(dict(schema=1, session_id='s', claude_config_dir=self.home,
             rounds=[dict(evidence=dict(stdout='stream.ndjson'))])))
         old=event(five=.95, week=.92, reset=4000000000)
         recent=dict(type='rate_limit_event',session_id='s',rate_limit_info=dict(status='allowed',
@@ -85,6 +85,16 @@ class Quota(unittest.TestCase):
         imported=q.refresh_from_jobs(str(self.root),self.home)
         self.assertEqual(imported['blocking_windows'],['seven_day'])
         self.assertEqual(imported['windows']['five_hour']['used_percent'],20)
+
+    def test_import_ignores_unsupported_or_foreign_job_state(self):
+        for index, state in enumerate((dict(schema=999),
+                                       dict(schema=1, schema_namespace='other/job-state'))):
+            job_root=self.root/'jobs'/str(index);job_root.mkdir(parents=True)
+            job_root.joinpath('job.json').write_text(json.dumps(dict(state, session_id='s',
+                claude_config_dir=self.home, rounds=[dict(evidence=dict(stdout='stream.ndjson'))])))
+            job_root.joinpath('stream.ndjson').write_text(json.dumps(event(five=.95,reset=4000000000))+'\n')
+        imported=q.refresh_from_jobs(str(self.root),self.home)
+        self.assertEqual(imported['state'],'unknown')
 
     def test_config_environment_preserves_auth_lookup_semantics(self):
         default=ct.job_environment(dict(claude_config_env=None),{'CLAUDE_CONFIG_DIR':'/wrong','OTHER':'kept'})

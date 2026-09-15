@@ -6,6 +6,7 @@ __pycache__/
 **/state/
 **/real/
 *.log
+aggregate*.json
 # Local accounts, settings and secrets
 .env
 .env.*
