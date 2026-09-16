@@ -47,6 +47,10 @@ command that produces it, see [Tests](README.md#tests).
   Skill entry point. A native Codex worker cannot satisfy or impersonate a
   named external route; multiple explicitly named routes are each dispatched,
   while an unavailable route fails closed instead of falling back.
+- Canonicalize and deduplicate route names before dispatch, require saved-backend
+  and native-completion evidence before identity claims, align the distributed
+  default prompt with the two-condition gate, and document that every active
+  reservation needs a non-overlapping checkout even for read-only jobs.
 - Updated the Skill frontmatter and main instructions, the retained CLI workflow
   reference, README, and README.zh-CN together for user-visible policy.
 - Added durable policy-text contract checks. They keep the trigger and

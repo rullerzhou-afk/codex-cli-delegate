@@ -1,6 +1,6 @@
 interface:
   display_name: "Codex CLI Delegate"
   short_description: "Delegate through MCP, resume sessions, and verify results"
-  default_prompt: "Use $codex-cli-delegate through MCP for every explicitly named external backend, preserve established user aliases, never substitute a native worker for that backend, and independently verify each result."
+  default_prompt: "Use $codex-cli-delegate to evaluate external-route requests, but start MCP jobs only when an explicit external route and one coherent responsibility are both present and no negative trigger applies. Resolve and deduplicate aliases to canonical backends, use one job per distinct backend and a non-overlapping checkout for each concurrent job, verify the saved backend before reporting identity, and independently accept each result."
 policy:
   allow_implicit_invocation: true

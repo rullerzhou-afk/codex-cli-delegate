@@ -15,7 +15,9 @@ scheduler. There is no silent route or model fallback.
   general-purpose multi-agent platform.
 - The coordinating Codex owns scope, integration, acceptance, and delivery.
 - A native Codex worker and an external backend job are different execution
-  identities. One cannot be reported as the other.
+  identities. The coordinating Codex reports an external job from its saved
+  backend and must not label or report any worker as a different route. Host-side
+  native-worker names remain outside this repository's observation and control.
 
 ## Delegation gate
 
@@ -34,11 +36,18 @@ not need a new explicit request. The negative triggers below still stop a new
 dispatch.
 
 An established user alias for Claude, Kimi, or OpenCode is equivalent to
-naming that canonical external route. Resolve the alias before dispatch. A
-named external route is satisfied only by a job whose saved backend matches
-that route; a native worker cannot satisfy it and must not be named, aliased,
-translated, varied, or reported in a way that implies it is that external
-backend.
+naming that canonical external route. Resolve every name and alias to its
+canonical backend before dispatch. For one responsibility, merge repeated
+labels that resolve to the same backend and start at most one job per distinct
+canonical backend. An unresolved alias does not open the delegation gate.
+
+A named external route is satisfied only by a job whose saved backend matches
+that route. Before reporting that the route was started or satisfied, read the
+saved backend from the start record or `delegate_status` and compare it with the
+resolved route. Report model and effort as verified only after native completion
+verification. The coordinating Codex must not label or report any worker as an
+external backend unless that saved backend matches; a native worker has no
+matching external job and cannot satisfy the route.
 
 ## Negative triggers (do not delegate)
 
@@ -62,7 +71,10 @@ of an external job this Skill already started.
   the next round.
 - Continue the same worker and job for rework. Do not create phase-named
   workers or phase-named jobs.
-- One writer owns an overlapping checkout at a time.
+- Every job that has not released its reservation occupies its checkout,
+  including read-only jobs and jobs awaiting review or recovery. The same
+  checkout and nested paths conflict. Concurrent jobs require distinct,
+  non-overlapping worktrees or clones; a different state root is not a bypass.
 
 ## Independent acceptance, not a second reviewer
 
@@ -71,11 +83,12 @@ of an external job this Skill already started.
 - Do not add a second external reviewer by default.
 - Select adversarial review only when the user requests it or the risk of the
   change requires it.
-- If the user explicitly names multiple external routes, dispatch each named
-  route. They are user-requested participants, not reviewers added by default.
-  Give each job one coherent responsibility. Several read-only reviewers may
-  inspect the same subject, but multiple writers must use separate worktrees
-  and must not share one checkout.
+- If the user explicitly names multiple distinct canonical external routes,
+  dispatch one matching job per backend. They are user-requested participants,
+  not reviewers added by default. Give each job one self-contained
+  responsibility. Several read-only reviewers may inspect the same subject,
+  but concurrent jobs still require distinct non-overlapping worktrees or
+  clones because reservations apply regardless of tool profile.
 
 ## Controls, not a sandbox
 
@@ -95,6 +108,9 @@ actual modified paths and artifacts.
 - If an explicitly requested external route is unavailable, report it; do not
   silently substitute a route, model, or account, including by using a native
   worker.
+- If one of several requested routes is unavailable, continue only the other
+  requested routes whose jobs pass the gate, report the unavailable route, and
+  do not replace it.
 
 ## Behavior scenarios
 
@@ -106,8 +122,11 @@ the contract checks:
 - A user names an established alias for OpenCode: resolve the alias and start
   an OpenCode backend job. A native worker with a similar task name is not that
   job and must not be presented as the requested route.
+- A user names OpenCode and two aliases for it for one review: resolve and merge
+  them, then start one OpenCode job rather than duplicate jobs.
 - A user explicitly asks both Claude and OpenCode to review: start one matching
-  external job for each named route, then independently assess both results.
+  external job for each named route in distinct non-overlapping checkouts, then
+  confirm each saved backend and independently assess both results.
 - A user asks Codex to explain a function: answer directly; do not delegate.
 - A user asks for native-worker routing: leave it to the host; do not start an
   external job.

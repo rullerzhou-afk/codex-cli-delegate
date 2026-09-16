@@ -11,6 +11,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[2]
 REFERENCE = REPO / "skill" / "references" / "delegation-policy.md"
 SKILL = REPO / "skill" / "SKILL.md"
+AGENT_METADATA = REPO / "skill" / "agents" / "openai.yaml"
 README = REPO / "README.md"
 README_ZH = REPO / "README.zh-CN.md"
 
@@ -41,13 +42,20 @@ REFERENCE_REQUIRED = {
     "unavailable_route": ["external route is unavailable, report it",
                           "do not silently substitute a route, model, or account"],
     "established_alias": ["established user alias", "equivalent to naming that canonical external route"],
-    "matching_backend": ["saved backend matches that route"],
-    "native_identity": ["native worker cannot satisfy it", "must not be named, aliased",
-                        "translated, varied, or reported"],
-    "multiple_named_routes": ["explicitly names multiple external routes", "dispatch each named route"],
-    "multi_route_responsibility": ["each job one coherent responsibility",
-                                   "multiple writers must use separate worktrees",
-                                   "must not share one checkout"],
+    "canonical_deduplication": ["merge repeated labels that resolve to the same backend",
+                                "at most one job per distinct canonical backend"],
+    "matching_backend": ["Before reporting that the route was started or satisfied",
+                         "read the saved backend from the start record or `delegate_status`"],
+    "native_identity": ["must not label or report any worker as an external backend unless that saved backend matches",
+                        "a native worker has no matching external job and cannot satisfy the route"],
+    "native_verification": ["Report model and effort as verified only after native completion verification"],
+    "multiple_named_routes": ["explicitly names multiple distinct canonical external routes",
+                              "one matching job per backend"],
+    "checkout_reservation": ["Every job that has not released its reservation occupies its checkout",
+                             "including read-only jobs", "same checkout and nested paths conflict",
+                             "Concurrent jobs require distinct, non-overlapping worktrees or clones"],
+    "read_only_reviewers": ["Several read-only reviewers may inspect the same subject",
+                            "reservations apply regardless of tool profile"],
     "no_native_substitution": ["including by using a native worker"],
     "scenarios_non_proof": ["human-observation aids", "not proof of stable model routing or quota savings"],
 }
@@ -59,15 +67,18 @@ SKILL_REQUIRED = [
     "Neither condition alone is enough",
     "allowed resolution paths",
     "recovering it after interruption or context loss",
-    "established user alias for a backend",
-    "matching backend",
-    "native Codex worker is separate",
-    "must not be presented as the requested external backend",
-    "name, alias, translation, or variant",
-    "explicitly names multiple external routes",
-    "dispatch each matching route",
-    "each job one coherent responsibility",
-    "multiple workers must not write the same checkout",
+    "Resolve every canonical name and established alias to its backend before dispatch",
+    "merge repeated labels that resolve to the same backend",
+    "at most one job per distinct canonical backend",
+    "confirming its saved `backend` in the start record or `delegate_status`",
+    "must not label or report any worker as an external backend unless that saved backend matches",
+    "a native worker has no matching external job and cannot satisfy the route",
+    "multiple distinct external routes",
+    "one matching job per backend",
+    "several read-only reviewers may inspect the same subject",
+    "Every job that has not released its reservation occupies its checkout regardless of tool profile",
+    "concurrent jobs, including read-only reviews, require distinct non-overlapping worktrees or clones",
+    "the same checkout and its nested paths conflict",
     "native-worker-only requests",
     "solo work",
     "casual explanations",
@@ -95,15 +106,18 @@ README_REQUIRED = [
     "one whole coherent responsibility",
     "coordination cost",
     "allowed resolution paths",
-    "established user alias for a backend",
-    "matching external backend",
-    "native Codex worker cannot satisfy it",
-    "be reported as that backend",
-    "name, alias, translation, or variant implying that identity",
-    "explicitly name multiple external routes",
-    "each named route is dispatched",
-    "one coherent responsibility",
-    "multiple workers must not write the same checkout",
+    "Resolve canonical names and established aliases to backends before dispatch",
+    "merge labels that resolve to the same backend",
+    "at most one job per distinct canonical backend",
+    "saved `backend` is confirmed from the start record or status",
+    "must not label or report any worker as an external backend unless that saved backend matches",
+    "a native worker cannot satisfy the route",
+    "multiple distinct external routes",
+    "one matching job is dispatched per backend",
+    "Several read-only reviewers may inspect the same subject",
+    "every job holding a reservation occupies its checkout regardless of tool profile",
+    "Concurrent jobs, including read-only reviews, require distinct non-overlapping worktrees or clones",
+    "the same checkout and nested paths conflict",
     "native-worker-only requests",
     "solo work",
     "casual explanations",
@@ -131,14 +145,18 @@ README_ZH_REQUIRED = [
     "完整、连贯",
     "协调成本",
     "允许的处置路径",
-    "已经建立的后端别名",
-    "匹配的外部后端 job",
-    "原生 Codex worker 不能顶替",
-    "名称、别名、译名或变体",
-    "明确点名多个外部路由",
-    "分别派发每条路线",
-    "每个 job 一项完整职责",
-    "多个 worker 不能写入同一个 checkout",
+    "正式名称和已建立别名解析成 canonical backend",
+    "解析到同一 backend 的重复名称合并",
+    "每个不同 backend 最多启动一个 job",
+    "确认保存的 `backend` 匹配后，才可以汇报点名路线已经启动或满足",
+    "不得把任何 worker 标记或汇报成与其保存 backend 不符的外部路线",
+    "原生 worker 不能满足该路线",
+    "多个不同的外部路线",
+    "每个 backend 分别派发一个匹配 job",
+    "多个只读审查者可以检查同一对象",
+    "每个尚未释放预订的 job 都会占用 checkout，不区分只读或写入",
+    "并发 job 即使都是只读审查，也必须使用互不重叠的 worktree 或 clone",
+    "同一 checkout 及其父子路径会冲突",
     "明确要求的外部路由不可用",
     "绝不静默改用其他路由、模型或账号",
     "不能改用原生 worker 顶替",
@@ -160,6 +178,28 @@ README_ZH_REQUIRED = [
     "skill/references/delegation-policy.md",
 ]
 
+AGENT_REQUIRED = [
+    "start MCP jobs only when an explicit external route and one coherent responsibility are both present",
+    "no negative trigger applies",
+    "Resolve and deduplicate aliases to canonical backends",
+    "one job per distinct backend",
+    "a non-overlapping checkout for each concurrent job",
+    "verify the saved backend before reporting identity",
+]
+
+FORBIDDEN_EN = [
+    "native worker may be reported as",
+    "may substitute a native worker",
+    "read-only reviewers may share one checkout",
+    "one job per route name",
+]
+
+FORBIDDEN_ZH = [
+    "可以改用原生 worker 顶替",
+    "只读审查可以共用同一个 checkout",
+    "每个点名名称一个 job",
+]
+
 
 def read(path):
     return path.read_text(encoding="utf-8")
@@ -176,14 +216,21 @@ class PolicyText(unittest.TestCase):
         missing = [phrase for phrase in phrases if normalise(phrase) not in normalized]
         self.assertEqual(missing, [], "%s is missing policy phrases: %s" % (label, missing))
 
+    def assert_forbidden_absent(self, text, phrases, label):
+        normalized = normalise(text)
+        present = [phrase for phrase in phrases if normalise(phrase) in normalized]
+        self.assertEqual(present, [], "%s contains contradictory policy phrases: %s" % (label, present))
+
     def test_reference_covers_every_concept(self):
         text = read(REFERENCE)
         for concept, phrases in REFERENCE_REQUIRED.items():
             with self.subTest(concept=concept):
                 self.assert_phrases(text, phrases, "delegation-policy.md (%s)" % concept)
+        self.assert_forbidden_absent(text, FORBIDDEN_EN, "delegation-policy.md")
 
     def test_skill_states_triggers_and_precedence(self):
         self.assert_phrases(read(SKILL), SKILL_REQUIRED, "SKILL.md")
+        self.assert_forbidden_absent(read(SKILL), FORBIDDEN_EN, "SKILL.md")
 
     def test_skill_frontmatter_states_explicit_request(self):
         frontmatter = read(SKILL).split("---", 2)[1].lower()
@@ -192,12 +239,18 @@ class PolicyText(unittest.TestCase):
         self.assertIn("claude", frontmatter)
         self.assertIn("kimi", frontmatter)
         self.assertIn("opencode", frontmatter)
+        self.assert_phrases(read(AGENT_METADATA), AGENT_REQUIRED, "agents/openai.yaml")
+        self.assert_forbidden_absent(read(AGENT_METADATA),
+                                     FORBIDDEN_EN + ["for every explicitly named external backend"],
+                                     "agents/openai.yaml")
 
     def test_readme_states_user_visible_policy(self):
         self.assert_phrases(read(README), README_REQUIRED, "README.md")
+        self.assert_forbidden_absent(read(README), FORBIDDEN_EN, "README.md")
 
     def test_chinese_readme_is_synchronized(self):
         self.assert_phrases(read(README_ZH), README_ZH_REQUIRED, "README.zh-CN.md")
+        self.assert_forbidden_absent(read(README_ZH), FORBIDDEN_ZH, "README.zh-CN.md")
 
     def test_reference_is_linked_from_every_public_doc(self):
         for path in (SKILL, README, README_ZH):

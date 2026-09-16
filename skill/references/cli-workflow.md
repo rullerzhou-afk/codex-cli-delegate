@@ -6,7 +6,7 @@ This is a community skill, not an official integration from any CLI or model pro
 
 ## Select the route
 
-Read [external delegation policy](delegation-policy.md) first. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it still recovers and resolves jobs it previously started. Once it starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation.
+Read [external delegation policy](delegation-policy.md) first. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it still recovers and resolves jobs it previously started. Normalize names and aliases to canonical backends before dispatch, merge repeated labels for the same responsibility, and start at most one job per distinct backend. Confirm the saved backend from the start/status record before reporting route identity. Once the Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation.
 
 - Claude: read [quota and required inputs](quota-and-inputs.md). Uses per-round restricted settings and hooks.
 - Kimi: read [Kimi setup and native evidence](kimi.md). Requires existing thinking configuration and three explicitly installed managed hooks. Normal dispatch checks them without rewriting user configuration.
@@ -19,7 +19,7 @@ The supporting references currently contain detailed Chinese operating notes; pu
 
 1. Establish the task, acceptance criteria, authorized directories and tools, and applicable project instructions. Save a task file with enough context to execute the work. Do not send credentials, unrelated conversations, or unnecessary files.
 2. Use the calling task's real `CODEX_THREAD_ID` as owner. If unavailable, pass its actual identifier with `--owner`; never borrow another task's owner.
-3. Use the intended existing checkout or an authorized isolated worktree, preserving any prior edits. Record the baseline for independent review.
+3. Use the intended existing checkout or an authorized isolated worktree, preserving any prior edits. Every job holding a reservation occupies its checkout even when read-only; concurrent jobs need distinct non-overlapping worktrees or clones, and same/nested paths conflict. Record the baseline for independent review.
 4. Keep real jobs on the shared default state directory `${CODEX_HOME:-~/.codex}/claude-delegate`. Its legacy name preserves checkout locks and recovery compatibility. A different state root bypasses cross-job conflict detection; reserve `--state-dir` for isolated tests.
 5. Give only the tools needed for the authorized task. Claude command rules use `--allow-tool`; Kimi and OpenCode tool selections are separate and not interchangeable. Bash permission in those backends grants the whole shell tool, not a command allowlist. Do not bypass permissions.
 6. For Claude, pass required files with `--require-file` and explicitly authorized outside reference directories with `--read-dir`. Read large files in chunks; truncated output is not the full file. OpenCode currently does not support those flags.
