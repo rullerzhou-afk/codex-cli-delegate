@@ -36,8 +36,9 @@ dispatch.
 An established user alias for Claude, Kimi, or OpenCode is equivalent to
 naming that canonical external route. Resolve the alias before dispatch. A
 named external route is satisfied only by a job whose saved backend matches
-that route; a native worker cannot satisfy it and must not be named or reported
-as that external backend.
+that route; a native worker cannot satisfy it and must not be named, aliased,
+translated, varied, or reported in a way that implies it is that external
+backend.
 
 ## Negative triggers (do not delegate)
 
@@ -72,6 +73,9 @@ of an external job this Skill already started.
   change requires it.
 - If the user explicitly names multiple external routes, dispatch each named
   route. They are user-requested participants, not reviewers added by default.
+  Give each job one coherent responsibility. Several read-only reviewers may
+  inspect the same subject, but multiple writers must use separate worktrees
+  and must not share one checkout.
 
 ## Controls, not a sandbox
 
