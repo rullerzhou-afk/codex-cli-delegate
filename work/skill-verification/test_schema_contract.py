@@ -84,6 +84,8 @@ class JobStateSchema(unittest.TestCase):
         compact = service.compact(self.ctx, job)
         self.assertEqual(compact["next_action"], "done")
         self.assertEqual(compact["phase"], "accepted")
+        listed = ct.cmd_list(self.ctx, SimpleNamespace())
+        self.assertEqual(listed["jobs"][0]["backend"], "claude")
 
     def test_accepted_stop_with_remaining_processes_stays_reservation_free(self):
         job_id = "22222222-2222-2222-2222-222222222222"

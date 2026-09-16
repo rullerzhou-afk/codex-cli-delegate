@@ -15,6 +15,14 @@ Schema namespaces are separate and independently versioned:
 
 A change to one namespace never implies a change to the other.
 
+## CLI route identity fields
+
+Successful CLI `start` results and every entry in `list.jobs` include the
+`backend` copied from persisted job state. `status` also includes that field.
+Callers compare this saved value with the resolved route before reporting an
+external identity; task labels and requested settings are not identity proof.
+These additive response fields do not change either persisted schema.
+
 New and current job-state writes persist `schema_namespace` alongside `schema`.
 On read, a document that declares a different namespace fails closed with
 `unsupported_schema`. The only tolerated absence is `schema_namespace` on the

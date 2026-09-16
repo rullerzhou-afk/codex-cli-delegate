@@ -86,8 +86,9 @@ class PublicCLI(unittest.TestCase):
     def test_public_lifecycle_json_and_disk_state(self):
         started = self.start(tag="round-one")
         for key in ("ok", "job_id", "phase", "round", "session_id", "owner",
-                    "cwd", "reservation", "timeout", "state_dir"):
+                    "backend", "cwd", "reservation", "timeout", "state_dir"):
             self.assertIn(key, started)
+        self.assertEqual(started["backend"], "claude")
         job = started["job_id"]
         granted = self.settle(job)
         self.assertEqual(granted["phase"], "awaiting_review", granted)
@@ -102,6 +103,7 @@ class PublicCLI(unittest.TestCase):
 
         listed = self.call("list")
         self.assertEqual([item["job_id"] for item in listed["jobs"]], [job])
+        self.assertEqual(listed["jobs"][0]["backend"], "claude")
 
         revised = self.call("revise", job, "--prompt-file", self.prompt(tag="round-two"))
         self.assertEqual(revised["round"], 1)

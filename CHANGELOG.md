@@ -30,9 +30,10 @@ command that produces it, see [Tests](README.md#tests).
   drives `cmd_start` -> detached worker completion -> `cmd_accept` through the
   real provider-independent commands (the worker finds the fake via a test-side
   `sitecustomize`; no product plugin mechanism).
-- Behavior-preserving: no CLI/MCP JSON, tool schema, state directory, job/round
-  shape, request receipt, profile, permission, quota, or error-code change. The
-  frozen black-box suite and old/current/accepted fixtures are unchanged; no
+- Phase 2 itself preserved CLI/MCP JSON, tool schema, state directory, job/round
+  shape, request receipts, profiles, permissions, quota, and error codes. A
+  later additive route-identity fix exposes the saved `backend` in retained CLI
+  `start`/`list` replies. Persisted fixtures and schemas remain unchanged; no
   schema bump. See [architecture](docs/ARCHITECTURE.md).
 - Current aggregate: 243 Python + 11 JavaScript tests pass locally with
   fixtures (no paid model call).
@@ -56,6 +57,10 @@ command that produces it, see [Tests](README.md#tests).
 - Added durable policy-text contract checks. They keep the trigger and
   precedence text present; they do not prove stable model routing or quota
   savings, and they cannot verify the unavailable-route behavior end to end.
+- Exposed the saved backend in retained CLI `start` and `list` results, clarified
+  that custom state roots disable conflict detection across state roots rather
+  than removing reservations, and pinned native model/effort verification across
+  the Skill and both public READMEs.
 - Historical aggregate for this phase: 240 Python + 11 JavaScript tests passed
   locally with fixtures (no paid model call).
 

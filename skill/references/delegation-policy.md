@@ -74,7 +74,9 @@ of an external job this Skill already started.
 - Every job that has not released its reservation occupies its checkout,
   including read-only jobs and jobs awaiting review or recovery. The same
   checkout and nested paths conflict. Concurrent jobs require distinct,
-  non-overlapping worktrees or clones; a different state root is not a bypass.
+  non-overlapping worktrees or clones. Do not use a different state root to
+  bypass this reservation: it does not remove the reservation requirement and
+  it prevents conflict detection across state roots.
 
 ## Independent acceptance, not a second reviewer
 

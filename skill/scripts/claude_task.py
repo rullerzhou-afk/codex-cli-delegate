@@ -1172,6 +1172,7 @@ def cmd_start(ctx, args):
     return {
         "ok": True,
         "job_id": job_id,
+        "backend": backend,
         "phase": job["phase"],
         "round": 0,
         "session_id": session_id,
@@ -1514,6 +1515,7 @@ def cmd_list(ctx, args):
             items.append(
                 {
                     "job_id": job.get("job_id"),
+                    "backend": job.get("backend", "claude"),
                     "phase": job.get("phase"),
                     "cwd": job.get("cwd"),
                     "reservation": job.get("reservation_key"),
