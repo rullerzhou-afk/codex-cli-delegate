@@ -14,6 +14,8 @@ scheduler. There is no silent route or model fallback.
 - This repository does not proxy native workers, store their state, or become a
   general-purpose multi-agent platform.
 - The coordinating Codex owns scope, integration, acceptance, and delivery.
+- A native Codex worker and an external backend job are different execution
+  identities. One cannot be reported as the other.
 
 ## Delegation gate
 
@@ -30,6 +32,12 @@ Neither condition alone opens the gate. Continuation and recovery of an
 external job this Skill already started are allowed resolution paths that do
 not need a new explicit request. The negative triggers below still stop a new
 dispatch.
+
+An established user alias for Claude, Kimi, or OpenCode is equivalent to
+naming that canonical external route. Resolve the alias before dispatch. A
+named external route is satisfied only by a job whose saved backend matches
+that route; a native worker cannot satisfy it and must not be named or reported
+as that external backend.
 
 ## Negative triggers (do not delegate)
 
@@ -62,6 +70,8 @@ of an external job this Skill already started.
 - Do not add a second external reviewer by default.
 - Select adversarial review only when the user requests it or the risk of the
   change requires it.
+- If the user explicitly names multiple external routes, dispatch each named
+  route. They are user-requested participants, not reviewers added by default.
 
 ## Controls, not a sandbox
 
@@ -74,12 +84,13 @@ actual modified paths and artifacts.
 - Without an explicit external route, this Skill does not claim routing
   precedence and does not start a new external job.
 - It must still recover and resolve external jobs its tools previously started.
-- A host routing skill may select a native worker; this repository neither
-  observes nor controls that worker.
+- When no external route has been named, a host routing skill may select a
+  native worker; this repository neither observes nor controls that worker.
 - Once this Skill starts an external job, its job, round, recovery, and
   acceptance rules apply through release of its reservation.
 - If an explicitly requested external route is unavailable, report it; do not
-  silently substitute a route, model, or account.
+  silently substitute a route, model, or account, including by using a native
+  worker.
 
 ## Behavior scenarios
 
@@ -88,6 +99,11 @@ the contract checks:
 
 - A user asks to have OpenCode review a patch: delegate to OpenCode with a
   read-only profile and review independently.
+- A user names an established alias for OpenCode: resolve the alias and start
+  an OpenCode backend job. A native worker with a similar task name is not that
+  job and must not be presented as the requested route.
+- A user explicitly asks both Claude and OpenCode to review: start one matching
+  external job for each named route, then independently assess both results.
 - A user asks Codex to explain a function: answer directly; do not delegate.
 - A user asks for native-worker routing: leave it to the host; do not start an
   external job.

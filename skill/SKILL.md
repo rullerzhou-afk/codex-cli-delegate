@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegate
-description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, or OpenCode through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
@@ -11,9 +11,11 @@ Codex prepares the task and independently reviews the result. Prefer the `codex-
 
 This Skill acts only on an explicit external route. A new external job requires both an explicit request for Claude, Kimi, or OpenCode, by name or by invoking this Skill, and one whole coherent responsibility (investigation, implementation, focused verification, and necessary documentation only when those parts are tightly coupled) that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this Skill already started, or recovering it after interruption or context loss, are allowed resolution paths that do not need a new explicit request.
 
+An established user alias for a backend counts as naming that external route. A named external route is satisfied only by starting or continuing a job on the matching backend. A native Codex worker is separate and must not be presented as the requested external backend. If the user explicitly names multiple external routes, dispatch each matching route; those are requested participants, not extra reviewers added by default.
+
 Do not start a new external job for native-worker-only requests, explicit solo work, casual explanations, tiny work, or work that is already nearly complete. Use one worker for the coupled responsibility, forward new constraints promptly, and continue the same worker and job for rework instead of creating phase-named jobs. Independent Codex acceptance stays mandatory; do not add a second external reviewer by default, and choose adversarial review only when the user requests it or risk requires it.
 
-Worktrees and tool allowlists are specific controls, not an operating-system sandbox. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it must still recover and resolve jobs its tools previously started; a host routing skill may select a native worker, which this repository neither observes nor controls. Once this Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account. See [external delegation policy](references/delegation-policy.md).
+Worktrees and tool allowlists are specific controls, not an operating-system sandbox. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it must still recover and resolve jobs its tools previously started; in that no-route case, a host routing skill may select a native worker, which this repository neither observes nor controls. Once this Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [external delegation policy](references/delegation-policy.md).
 
 ## MCP workflow
 

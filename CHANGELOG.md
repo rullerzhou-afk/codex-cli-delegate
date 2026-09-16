@@ -43,6 +43,10 @@ command that produces it, see [Tests](README.md#tests).
   positive and negative triggers, one-worker continuation, independent
   acceptance without a default second reviewer, controls-not-an-OS-sandbox, and
   co-installation precedence.
+- Bound established user aliases to their canonical external backends at the
+  Skill entry point. A native Codex worker cannot satisfy or impersonate a
+  named external route; multiple explicitly named routes are each dispatched,
+  while an unavailable route fails closed instead of falling back.
 - Updated the Skill frontmatter and main instructions, the retained CLI workflow
   reference, README, and README.zh-CN together for user-visible policy.
 - Added durable policy-text contract checks. They keep the trigger and
