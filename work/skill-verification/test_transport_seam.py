@@ -66,6 +66,7 @@ class TransportSeam(unittest.TestCase):
                                allow_tool=[], read_dir=[], require_file=[], request=None,
                                kimi_bin=None, kimi_tool=[], opencode_bin=None, opencode_tool=[])
         started = ct.cmd_start(self.ctx, args)
+        self.assertEqual(started["backend"], "fake")
         job = started["job_id"]
         self.assertTrue((Path(self.ctx.job_dir(job)) / "job.json").is_file())
         self.assertNotEqual(started["phase"], ct.PHASE_ACCEPTED)
@@ -81,6 +82,9 @@ class TransportSeam(unittest.TestCase):
         self.assertEqual(status["phase"], ct.PHASE_AWAITING_REVIEW, status.get("attention"))
         self.assertNotEqual(status["phase"], ct.PHASE_ACCEPTED)
         self.assertEqual(status["backend"], "fake")
+        listed = ct.cmd_list(self.ctx, SimpleNamespace())
+        self.assertEqual([item["job_id"] for item in listed["jobs"]], [job])
+        self.assertEqual(listed["jobs"][0]["backend"], "fake")
 
         notes = self.root / "review.md"
         notes.write_text("Independently reviewed the fake transport completion.")
