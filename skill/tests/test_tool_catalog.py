@@ -11,6 +11,7 @@ import kimi_backend as kb
 import opencode_backend as oc
 import pi_backend as pi
 import tool_catalog as catalog
+from delegate_service import DelegateService
 
 
 class ToolCatalogTests(unittest.TestCase):
@@ -81,3 +82,18 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertIn('ReadMediaFile', info['kimi']['supported'])
         self.assertIn('webfetch', info['opencode']['supported'])
         self.assertEqual(info['pi']['default'], ['read', 'grep', 'find', 'ls'])
+
+    def test_pi_tools_do_not_change_existing_request_digest_shape(self):
+        with tempfile.TemporaryDirectory() as root:
+            cwd = Path(root) / 'checkout'
+            cwd.mkdir()
+            service = DelegateService(str(Path(root) / 'state'), '/bin/echo')
+            captured = []
+            def collect(_owner, _request, _operation, spec, _callback):
+                captured.append(spec)
+                return spec
+            with patch.object(service, 'dispatch', side_effect=collect):
+                service.start('owner', 'old-shape', str(cwd), 'scope', backend='opencode')
+                service.start('owner', 'pi-shape', str(cwd), 'scope', backend='pi')
+            self.assertNotIn('pi_tools', captured[0])
+            self.assertEqual(captured[1]['pi_tools'], [])

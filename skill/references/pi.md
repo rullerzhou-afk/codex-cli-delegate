@@ -80,7 +80,8 @@ The verifier requires all of the following after process exit:
 - assistant messages from `openrouter` / `stealth/union-alpha`;
 - effective native `thinkingLevel=off` and no thinking content;
 - a stopped final assistant message, `agent_end` without retry, and
-  `agent_settled`;
+  a later `agent_settled`;
+- every observed tool start names one of the job's saved selected tools;
 - the same visible final text in Pi's JSON stream and native session.
 
 Failure leaves the round unaccepted for inspection/recovery. `awaiting_review`
@@ -94,13 +95,30 @@ task needs with repeated `--pi-tool` values or MCP `pi_tools`. `edit` and
 command-pattern allowlist.
 
 Delegated Pi processes pass `--no-extensions`, `--no-skills`,
-`--no-prompt-templates`, `--no-themes`, `--no-context-files`, and
-`--no-approve`. This narrows the loaded Pi surface and avoids project-local
-customization; it is not an operating-system sandbox. The working checkout,
-credentials, and the user's Pi configuration remain available to the process
-under the OS user's permissions.
+`--no-prompt-templates`, `--no-themes`, and `--no-context-files` to disable
+resource discovery. `--no-approve` means “ignore project-local files for this
+run”; it is not automatic command approval. `--offline` disables Pi's startup
+update, package-check, and telemetry network operations, but it does not block
+the selected OpenRouter model request. These controls narrow loaded inputs;
+they are not an operating-system sandbox. The working checkout, credentials,
+and the user's global Pi configuration remain available to the process under
+the OS user's permissions.
+
+Pi changes its process title after startup, so argv tokens cannot safely bind a
+later stop. On macOS the adapter records the launched Node process by kernel
+birth time, executable, uid, and process group before allowing stop or timeout
+signals. Other local platforms are refused until they implement equivalent
+process identity.
 
 Pi/OpenRouter quota is not part of the Claude 90% quota gate. The advertised
 availability and price of an OpenRouter stealth model may change; every new
 start and revision repeats exact local auth/model preflight and each completed
 round verifies its recorded native identity.
+
+This release exposes one fixed Pi profile. Supporting another model should add
+a reviewed named profile that fixes provider, model, thinking semantics, and
+capability expectations. The selected profile must be saved in the job,
+included in request identity, remain unchanged across revisions, and drive
+preflight, invocation, native verification, evidence, documentation, and
+fixtures together. Arbitrary free-form model strings are deliberately not
+accepted.

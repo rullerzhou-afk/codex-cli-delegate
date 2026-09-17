@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import claude_task as ct
 import pi_backend as pi
+from delegate_transport import PiTransport
 from review_evidence import EvidenceError, visible_responses
 
 
@@ -115,7 +116,8 @@ class PiBackendTests(unittest.TestCase):
         prompt = self.root / "task.md"
         prompt.write_text("scope")
         with patch.object(pi, "prepare", return_value=dict(
-                pi_version="0.86.0", pi_compatibility={"cli_options": "checked"})):
+                pi_runtime="/bin/echo", pi_version="0.86.0",
+                pi_compatibility={"cli_options": "checked"})):
             argv, env, saved = pi.setup(self.job, self.record, False, str(prompt), self.root)
         self.assertEqual(argv[argv.index("--provider") + 1], pi.PROVIDER)
         self.assertEqual(argv[argv.index("--model") + 1], pi.RAW_MODEL)
@@ -123,9 +125,20 @@ class PiBackendTests(unittest.TestCase):
         self.assertEqual(argv[argv.index("--session-id") + 1], self.sid)
         self.assertIn("--no-extensions", argv)
         self.assertIn("--no-skills", argv)
+        self.assertIn("--no-prompt-templates", argv)
+        self.assertIn("--no-themes", argv)
+        self.assertIn("--no-context-files", argv)
+        self.assertIn("--no-approve", argv)
+        self.assertEqual(argv[argv.index("--tools") + 1], "read")
         self.assertNotIn("scope", " ".join(argv))
         self.assertIn("[codex-delegate:round-zero]", Path(saved).read_text())
         self.assertEqual(env["PWD"], str(self.root))
+        with patch.object(pi, "prepare", return_value=dict(
+                pi_runtime="/bin/echo", pi_version="0.86.0",
+                pi_compatibility={"cli_options": "checked"})):
+            resumed, _, _ = pi.setup(self.job, self.record, True, str(prompt), self.root)
+        self.assertEqual(resumed[resumed.index("--session") + 1], self.sid)
+        self.assertNotIn("--session-id", resumed)
 
     def test_setup_refuses_changed_saved_profile(self):
         prompt = self.root / "task.md"
@@ -134,21 +147,78 @@ class PiBackendTests(unittest.TestCase):
         with self.assertRaises(ct.CliError) as got:
             pi.setup(self.job, self.record, False, str(prompt), self.root)
         self.assertEqual(got.exception.code, "pi_profile")
+        with self.assertRaises(ct.CliError) as got:
+            PiTransport().revision_config(None, self.job, [], [])
+        self.assertEqual(got.exception.code, "pi_profile")
 
     def test_preflight_checks_auth_exact_model_and_required_flags(self):
         help_text = "\n".join("--" + flag for flag in pi.REQUIRED_FLAGS)
         ready = json.dumps(dict(status="ready", provider="openrouter", authType="api_key"))
         model = "provider model context\nopenrouter stealth/union-alpha 262.1K"
-        with patch.object(pi.subprocess, "check_output",
-                          side_effect=["0.86.0", help_text, ready, model]):
+        with patch.object(pi.sys, "platform", "darwin"), patch.object(
+                pi.subprocess, "check_output", side_effect=["0.86.0", help_text, ready, model]):
             result = pi.prepare("/bin/echo", ["read"], [])
         self.assertEqual(result["pi_version"], "0.86.0")
         self.assertEqual(result["pi_tools"], ["read"])
-        with patch.object(pi.subprocess, "check_output",
-                          side_effect=["0.86.0", help_text, ready, "provider model"]):
+        with patch.object(pi.sys, "platform", "darwin"), patch.object(
+                pi.subprocess, "check_output",
+                side_effect=["0.86.0", help_text, ready, "provider model"]):
             with self.assertRaises(ct.CliError) as got:
                 pi.prepare("/bin/echo", ["read"], [])
         self.assertEqual(got.exception.code, "pi_model_missing")
+
+    def test_preflight_normalizes_bad_auth_and_refuses_other_platforms(self):
+        help_text = "\n".join("--" + flag for flag in pi.REQUIRED_FLAGS)
+        for auth in ("", "null", "[]"):
+            with self.subTest(auth=auth), patch.object(pi.sys, "platform", "darwin"), patch.object(
+                    pi.subprocess, "check_output", side_effect=["0.86.0", help_text, auth]):
+                with self.assertRaises(ct.CliError) as got:
+                    pi.prepare("/bin/echo", ["read"], [])
+                self.assertEqual(got.exception.code, "pi_auth")
+        with patch.object(pi.sys, "platform", "linux"):
+            with self.assertRaises(ct.CliError) as got:
+                pi.prepare("/bin/echo", ["read"], [])
+        self.assertEqual(got.exception.code, "pi_platform")
+
+    def test_marker_id_tool_profile_effort_and_retry_fail_closed(self):
+        self.native[1].pop("id")
+        self.save()
+        result = self.verify()
+        self.assertFalse(result["ok"])
+        self.assertIn("round marker id", " ".join(result["reasons"]))
+
+        self.setUp()
+        self.stream.insert(2, dict(type="tool_execution_start", toolCallId="call-1", toolName="bash"))
+        self.stream.insert(3, dict(type="tool_execution_end", toolCallId="call-1", toolName="bash", isError=False))
+        self.save()
+        result = self.verify()
+        self.assertIn("tool_profile_mismatch", result["reasons"])
+        self.assertEqual(result["observed_tools"], ["bash"])
+
+        self.setUp()
+        self.native.insert(-1, dict(type="thinking_level_change", id="late-thinking",
+                                    parentId="user-0", thinkingLevel="high"))
+        self.save()
+        self.assertIn("effort_unverified", self.verify()["reasons"])
+
+        self.setUp()
+        self.stream.insert(-1, dict(type="agent_end", messages=[], willRetry=True))
+        self.save()
+        self.assertIn("native_retry_seen", self.verify()["reasons"])
+
+    def test_completion_requires_settled_after_final_end(self):
+        settled = self.stream.pop()
+        self.stream.insert(-1, settled)
+        self.save()
+        self.assertIn("native_completion_missing", self.verify()["reasons"])
+
+    def test_export_requires_exactly_one_pi_session_header(self):
+        payload = [row for row in self.stream if row.get("type") != "session"]
+        with self.assertRaises(EvidenceError):
+            visible_responses(("".join(json.dumps(row) + "\n" for row in payload)).encode(), "pi", self.sid)
+        payload = [self.stream[0], self.stream[0], *self.stream[1:]]
+        with self.assertRaises(EvidenceError):
+            visible_responses(("".join(json.dumps(row) + "\n" for row in payload)).encode(), "pi", self.sid)
 
     def test_export_includes_visible_text_only(self):
         private = dict(type="message_update", assistantMessageEvent=dict(

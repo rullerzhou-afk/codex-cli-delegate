@@ -24,7 +24,12 @@ command that produces it, see [Tests](README.md#tests).
   session through OpenRouter Union Alpha, with model/effort/session evidence
   passing both times. Future stealth-model availability and pricing remain
   outside this repository's guarantees.
-- Current aggregate after this update: 250 Python and 11 JavaScript tests pass
+- Follow-up hardening records Pi's Node process through Darwin kernel identity
+  after its argv title changes, normalizes malformed auth output, binds
+  current-round effort/tool/completion evidence, requires a session header for
+  evidence export, removes blocking duplicate revision probes, and documents
+  the actual project-trust and offline flag semantics.
+- Current aggregate after this update: 256 Python and 11 JavaScript tests pass
   across the portable and macOS process-identity groups.
 
 ## Unreleased — Phase 2: separate the runtime by responsibility

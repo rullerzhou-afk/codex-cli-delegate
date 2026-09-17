@@ -315,9 +315,8 @@ class PiTransport(Transport):
         if read_dirs or required_files:
             raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
         import pi_backend
-        actual = pi_backend.prepare(job["pi_bin"], job["pi_tools"], [])
-        return {"pi_version": actual["pi_version"],
-                "pi_compatibility": actual["pi_compatibility"]}
+        pi_backend.require_profile(job)
+        return {}
 
     def baseline(self, job):
         import pi_backend
@@ -331,6 +330,7 @@ class PiTransport(Transport):
         return PreparedRound(argv=argv, env=env, prompt_file=prompt_file, monitor=monitor)
 
     def launch_stamp(self, job, stored, stored_record):
+        stored["pi_runtime"] = job["pi_runtime"]
         stored["pi_version"] = job["pi_version"]
         stored["pi_compatibility"] = job["pi_compatibility"]
         stored_record["pi_version"] = job["pi_version"]
@@ -338,6 +338,10 @@ class PiTransport(Transport):
     def verify(self, job, record, stdout_path, exit_code):
         import pi_backend
         return pi_backend.verify(job, record, stdout_path, exit_code)
+
+    def capture_child(self, job, pid, token):
+        import kimi_backend
+        return kimi_backend.capture_identity(pid, token, job["pi_runtime"])
 
 
 _REGISTRY = {}

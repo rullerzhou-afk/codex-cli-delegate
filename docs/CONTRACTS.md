@@ -128,7 +128,7 @@ should switch on `error`, not on `message`.
 | `sdk_missing`, `sdk_unavailable`, `sdk_version`, `sdk_identity`, `sdk_missing_result`, `sdk_close_incomplete`, `sdk_scope_changed` | SDK transport preflight, identity, result, or scope problems |
 | `kimi_platform`, `kimi_permissions`, `kimi_missing`, `kimi_effort_config`, `kimi_hooks_missing`, `kimi_session_missing`, `kimi_session_ambiguous` | Kimi CLI adapter preflight, permissions, hooks, and resume failures |
 | `opencode_platform`, `opencode_permissions`, `opencode_missing`, `opencode_probe`, `opencode_incompatible`, `opencode_session_missing` | OpenCode CLI adapter preflight, probe, compatibility, and resume failures |
-| `pi_permissions`, `pi_missing`, `pi_probe`, `pi_incompatible`, `pi_auth`, `pi_model_missing`, `pi_profile`, `pi_session_missing` | Pi CLI adapter tools, executable, capability, OpenRouter auth/model, fixed profile, and native-session failures |
+| `pi_platform`, `pi_permissions`, `pi_missing`, `pi_probe`, `pi_incompatible`, `pi_auth`, `pi_model_missing`, `pi_profile`, `pi_session_missing` | Pi platform/process identity, tools, executable, capability, OpenRouter auth/model, fixed profile, and native-session failures |
 | `claim_consumed`, `stale_worker`, `stopped_before_launch` | Private worker claim/round guarding |
 | `request_conflict` | A `request_id` was reused with different inputs |
 | `bad_notification`, `notification_closed`, `notification_identity`, `notification_spawn_failed`, `notification_start_timeout`, `notification_unsupported` | Notification validation, watcher lifecycle, and platform support |
@@ -150,7 +150,8 @@ Process-level failures that are not `CliError`: `os_error` (unexpected OSError),
 `final_report`, `rounds`, plus optional `attention`, `accepted`,
 `acceptance_history`, `stopped`, backend tool fields, SDK worker fields, and
 `opencode_version`/`opencode_compatibility`, and Pi's backend-specific
-`pi_tools`, `pi_bin`, `pi_session_dir`, `pi_version`, and `pi_compatibility`.
+`pi_tools`, `pi_bin`, `pi_runtime`, `pi_session_dir`, `pi_version`, and
+`pi_compatibility`.
 
 Each entry in `rounds` begins as `claude_task.new_round(...)` and gains
 lifecycle fields as it runs. Current round fields include: `round`, `kind`,

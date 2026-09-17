@@ -246,7 +246,7 @@ class PolicyText(unittest.TestCase):
         self.assertIn("claude", frontmatter)
         self.assertIn("kimi", frontmatter)
         self.assertIn("opencode", frontmatter)
-        self.assertIn("pi", frontmatter)
+        self.assertRegex(frontmatter, r"\bpi\b")
         self.assert_phrases(read(AGENT_METADATA), AGENT_REQUIRED, "agents/openai.yaml")
         self.assert_forbidden_absent(read(AGENT_METADATA),
                                      FORBIDDEN_EN + ["for every explicitly named external backend"],

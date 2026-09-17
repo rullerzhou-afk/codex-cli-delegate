@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from claude_events import Monitor
@@ -46,12 +47,25 @@ def probe(binary, *args, timeout=10):
 def prepare(explicit, requested_tools, allow_rules):
     """Validate the installed CLI, OpenRouter auth, exact model, and tools."""
     chosen = select("pi", requested_tools)
+    if sys.platform != "darwin":
+        error("pi_platform", "Pi process identity is currently verified on macOS only")
     if allow_rules:
         error("pi_permissions", "Claude allow rules are not Pi rules; use --pi-tool")
     binary = explicit or shutil.which("pi")
     if not binary or not os.path.isfile(binary) or not os.access(binary, os.X_OK):
         error("pi_missing", "Pi coding-agent CLI not found; provide --pi-bin")
     binary = str(Path(binary).resolve())
+    runtime = binary
+    try:
+        with Path(binary).open("rb") as source:
+            first_line = source.readline(256).decode("utf-8", "replace")
+    except OSError:
+        first_line = ""
+    if first_line.startswith("#!") and re.search(r"(?:^|\s|/)node(?:\s|$)", first_line):
+        node = shutil.which("node")
+        if not node or not os.path.isfile(node) or not os.access(node, os.X_OK):
+            error("pi_incompatible", "Pi uses a Node launcher but the executing Node binary could not be resolved")
+        runtime = os.path.realpath(node)
     version = probe(binary, "--version")
     if not version:
         error("pi_probe", "Pi returned an empty version; could not record the executing CLI")
@@ -64,17 +78,21 @@ def prepare(explicit, requested_tools, allow_rules):
         auth_text = probe(binary, "auth", "check", "--provider", PROVIDER,
                           "--json", "--no-refresh")
         auth = json.loads(auth_text.splitlines()[-1])
-    except (ValueError, TypeError):
+        if not isinstance(auth, dict):
+            raise TypeError("auth status is not an object")
+    except (ValueError, TypeError, IndexError, AttributeError):
         error("pi_auth", "Pi returned invalid OpenRouter auth status")
     if auth.get("status") != "ready" or auth.get("provider") != PROVIDER:
         error("pi_auth", "Pi OpenRouter authentication is not ready; configure it before delegation")
-    models = probe(binary, "--offline", "--list-models", RAW_MODEL)
+    models = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "",
+                    probe(binary, "--offline", "--list-models", RAW_MODEL))
     exact = any(parts[:2] == [PROVIDER, RAW_MODEL]
                 for parts in (line.split() for line in models.splitlines()) if len(parts) >= 2)
     if not exact:
         error("pi_model_missing", "Pi cannot resolve exact model " + MODEL + "; no fallback is allowed")
     return dict(
         pi_bin=binary,
+        pi_runtime=runtime,
         pi_tools=chosen,
         pi_version=version,
         pi_compatibility=dict(
@@ -136,12 +154,17 @@ def baseline(job):
     return [dict(path=str(path), size=size, sha256=digest_prefix(path, size))], "ok"
 
 
+def require_profile(job):
+    if job.get("model") != MODEL or job.get("effort") != EFFORT:
+        error("pi_profile", "Saved Pi model/effort differs from the fixed verified profile")
+
+
 def setup(job, record, resume, prompt_file, directory):
     from claude_task import atomic_write_bytes, ensure_dir
 
-    if job.get("model") != MODEL or job.get("effort") != EFFORT:
-        error("pi_profile", "Saved Pi model/effort differs from the fixed verified profile")
+    require_profile(job)
     actual = prepare(job["pi_bin"], job["pi_tools"], [])
+    job["pi_runtime"] = actual["pi_runtime"]
     job["pi_version"] = actual["pi_version"]
     job["pi_compatibility"] = actual["pi_compatibility"]
     record["pi_version"] = actual["pi_version"]
@@ -219,8 +242,10 @@ def verify(job, record, stdout_path, exit_code):
     try:
         stream = rows(stdout_path)
         sessions = [row for row in stream if row.get("type") == "session"]
+        stream_cwd = sessions[0].get("cwd") if len(sessions) == 1 else None
         if (len(sessions) != 1 or sessions[0].get("id") != job["session_id"]
-                or os.path.realpath(sessions[0].get("cwd", "")) != job["cwd"]):
+                or not isinstance(stream_cwd, str) or not stream_cwd
+                or os.path.realpath(stream_cwd) != job["cwd"]):
             raise ValueError("Pi JSON stream session mismatch")
         stdout_users = [row.get("message") or {} for row in stream
                         if row.get("type") == "message_end"
@@ -228,14 +253,23 @@ def verify(job, record, stdout_path, exit_code):
         stdout_assistants = [row.get("message") or {} for row in stream
                              if row.get("type") == "message_end"
                              and (row.get("message") or {}).get("role") == "assistant"]
-        endings = [row for row in stream if row.get("type") == "agent_end"]
-        if not endings or endings[-1].get("willRetry") is not False or not any(
-                row.get("type") == "agent_settled" for row in stream):
+        ending_indexes = [i for i, row in enumerate(stream) if row.get("type") == "agent_end"]
+        endings = [stream[i] for i in ending_indexes]
+        settled_indexes = [i for i, row in enumerate(stream) if row.get("type") == "agent_settled"]
+        if any(row.get("willRetry") is True for row in endings):
+            reasons.append("native_retry_seen")
+        if (not endings or endings[-1].get("willRetry") is not False
+                or not settled_indexes or settled_indexes[-1] <= ending_indexes[-1]):
             reasons.append("native_completion_missing")
         if any(row.get("type") == "error" for row in stream):
             reasons.append("session_error")
         tool_failures = sum(row.get("type") == "tool_execution_end" and row.get("isError") is True
                             for row in stream)
+        observed_tools = sorted({row.get("toolName") for row in stream
+                                 if row.get("type") == "tool_execution_start"
+                                 and isinstance(row.get("toolName"), str)})
+        if any(name not in (job.get("pi_tools") or []) for name in observed_tools):
+            reasons.append("tool_profile_mismatch")
 
         native_path = session_file(job)
         prior = record.get("prior_assistant_uuids") or []
@@ -252,7 +286,8 @@ def verify(job, record, stdout_path, exit_code):
         fresh = rows(native_path, offset)
         if not full or full[0].get("type") != "session" or full[0].get("id") != job["session_id"]:
             raise ValueError("native session header mismatch")
-        if os.path.realpath(full[0].get("cwd", "")) != job["cwd"]:
+        native_cwd = full[0].get("cwd")
+        if not isinstance(native_cwd, str) or not native_cwd or os.path.realpath(native_cwd) != job["cwd"]:
             raise ValueError("native session cwd mismatch")
 
         name = "codex-delegate:" + record["run_token"]
@@ -260,7 +295,10 @@ def verify(job, record, stdout_path, exit_code):
         if len(markers) != 1:
             raise ValueError("round marker missing or ambiguous")
         marker_id = markers[0].get("id")
-        marker_index = next(i for i, row in enumerate(full) if row.get("id") == marker_id)
+        marker_index = (next((i for i, row in enumerate(full) if row.get("id") == marker_id), None)
+                        if isinstance(marker_id, str) and marker_id else None)
+        if marker_index is None:
+            raise ValueError("round marker id is missing from the native session")
         active = full[marker_index:]
         messages = [row for row in active if row.get("type") == "message"]
         users = [(i, row) for i, row in enumerate(active)
@@ -276,22 +314,29 @@ def verify(job, record, stdout_path, exit_code):
         if not assistants:
             reasons.append("final_report_missing")
 
-        model_changes = [row for row in full[:marker_index + user_index + 1]
+        through_user = marker_index + user_index + 1
+        model_changes = [row for row in full[:through_user]
                          if row.get("type") == "model_change"]
-        effort_changes = [row for row in full[:marker_index + user_index + 1]
+        effort_changes = [row for row in full[:through_user]
                           if row.get("type") == "thinking_level_change"]
+        round_model_changes = [row for row in active if row.get("type") == "model_change"]
+        round_effort_changes = [row for row in active if row.get("type") == "thinking_level_change"]
         if (not model_changes or model_changes[-1].get("provider") != PROVIDER
                 or model_changes[-1].get("modelId") != RAW_MODEL
+                or any(row.get("provider") != PROVIDER or row.get("modelId") != RAW_MODEL
+                       for row in round_model_changes)
                 or any(message.get("provider") != PROVIDER or message.get("model") != RAW_MODEL
                        for message in assistants)):
             reasons.append("model_unverified")
         else:
             model_ok = bool(assistants)
-        effective_effort = effort_changes[-1].get("thinkingLevel") if effort_changes else None
+        effective_effort = ((round_effort_changes[-1] if round_effort_changes else effort_changes[-1])
+                            .get("thinkingLevel") if (round_effort_changes or effort_changes) else None)
         thinking = [part for message in assistants for part in (message.get("content") or [])
                     if isinstance(part, dict) and part.get("type") == "thinking"
                     and any(part.get(key) for key in ("thinking", "text", "content"))]
-        if effective_effort != EFFORT or thinking:
+        if (effective_effort != EFFORT or thinking
+                or any(row.get("thinkingLevel") != EFFORT for row in round_effort_changes)):
             reasons.append("effort_unverified")
         else:
             effort_ok = bool(assistants)
@@ -318,12 +363,13 @@ def verify(job, record, stdout_path, exit_code):
             assistants=[{key: message.get(key) for key in
                          ("provider", "model", "stopReason", "timestamp", "responseId")}
                         for message in assistants],
-            effective_effort=effective_effort, report=report,
+            effective_effort=effective_effort, observed_tools=observed_tools, report=report,
         ))
     except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
         reasons.append("native_evidence_invalid:" + str(exc)[:160])
     if exit_code != 0:
         reasons.insert(0, "exit_nonzero")
+    reasons = list(dict.fromkeys(reasons))
     return dict(
         ok=not reasons,
         needs_attention=exit_code == 0 and bool(reasons),
@@ -339,6 +385,7 @@ def verify(job, record, stdout_path, exit_code):
         assistant_models=sorted({str(message.get("provider")) + "/" + str(message.get("model"))
                                  for message in assistants}),
         efforts=[effective_effort] if effective_effort else [],
+        observed_tools=observed_tools if "observed_tools" in locals() else [],
         transcript_lookup=str(Path(stdout_path).parent / "pi-native.json") if native_path else "missing",
         new_assistant_entries=len(assistants),
     )

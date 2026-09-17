@@ -68,7 +68,7 @@ def inside(root, relative):
 
 
 def visible_responses(data, backend, session_id):
-    responses, offset = [], 0
+    responses, offset, pi_session_headers = [], 0, 0
     for number, line in enumerate(data.splitlines(keepends=True), 1):
         if not line.endswith(b'\n'):
             raise EvidenceError('Source stream ends with an incomplete record')
@@ -82,8 +82,10 @@ def visible_responses(data, backend, session_id):
             raise EvidenceError('Source stream contains another session')
         if backend == 'opencode' and row.get('sessionID') != session_id:
             raise EvidenceError('OpenCode source stream contains another session')
-        if backend == 'pi' and row.get('type') == 'session' and row.get('id') != session_id:
-            raise EvidenceError('Pi source stream contains another session')
+        if backend == 'pi' and row.get('type') == 'session':
+            pi_session_headers += 1
+            if row.get('id') != session_id:
+                raise EvidenceError('Pi source stream contains another session')
         texts = []
         if backend == 'claude' and not row.get('parent_tool_use_id'):
             if row.get('type') == 'assistant':
@@ -113,6 +115,8 @@ def visible_responses(data, backend, session_id):
                                       record_byte_start=offset, record_byte_end=offset + len(line),
                                       record_sha256=digest(line)))
         offset += len(line)
+    if backend == 'pi' and pi_session_headers != 1:
+        raise EvidenceError('Pi source stream must contain exactly one matching session header')
     return responses
 
 
