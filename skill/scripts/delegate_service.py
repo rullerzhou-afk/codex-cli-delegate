@@ -85,15 +85,19 @@ class DelegateService:
 
     def start(self, owner, request_id, cwd, task, backend="claude", allow_tools=None,
               read_dirs=None, required_files=None, timeout=None, max_revisions=None,
-              kimi_tools=None, opencode_tools=None):
-        if backend not in ("claude", "kimi", "opencode"):
-            raise ct.CliError("unsupported_backend", "supported agents: claude, kimi, opencode; Pi is not implemented")
+              kimi_tools=None, opencode_tools=None, pi_tools=None):
+        if backend not in ("claude", "kimi", "opencode", "pi"):
+            raise ct.CliError("unsupported_backend", "supported agents: claude, kimi, opencode, pi")
         if not isinstance(task, str) or not task.strip() or len(task.encode()) > ct.PROMPT_MAX_BYTES:
             raise ct.CliError("bad_task", "task must contain 1–1048576 UTF-8 bytes")
         spec = dict(cwd=ct.validate_cwd(cwd), task=task, backend=backend,
                     allow_tools=allow_tools or [], read_dirs=read_dirs or [], required_files=required_files or [],
                     timeout=ct.validate_timeout(timeout), max_revisions=ct.validate_max_revisions(max_revisions),
                     kimi_tools=kimi_tools or [], opencode_tools=opencode_tools or [])
+        # Preserve request digests for existing non-Pi retries across this
+        # additive backend update. Pi requests include their own tool field.
+        if backend == "pi" or pi_tools:
+            spec["pi_tools"] = pi_tools or []
 
         def launch(ctx, request, prompt):
             ct.atomic_write_bytes(str(prompt), task.encode())
@@ -102,7 +106,8 @@ class DelegateService:
                                    backend=backend, transport="sdk" if backend == "claude" else "cli",
                                    read_dir=spec["read_dirs"], require_file=spec["required_files"],
                                    kimi_bin=None, kimi_tool=spec["kimi_tools"], opencode_bin=None,
-                                   opencode_tool=spec["opencode_tools"], request=request)
+                                   opencode_tool=spec["opencode_tools"], pi_bin=None,
+                                   pi_tool=spec.get("pi_tools", []), request=request)
             return ct.cmd_start(ctx, args)
 
         return self.dispatch(owner, request_id, "start", spec, launch)

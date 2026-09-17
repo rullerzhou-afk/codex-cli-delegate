@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, and OpenCode**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
+A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, OpenCode, and Pi**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
 
 It also observes the completion of an exact **remote Windows Codex CLI turn** over SSH. Remote observation and local delegation are separate capabilities.
 
@@ -11,7 +11,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 - Keeps Claude Agent SDK sessions alive between revision rounds; resumes the saved native session after a worker restart.
 - Adds authorized command rules and reference inputs to the same Claude job, refreshing an idle connection automatically. Accepted jobs can be continued with their prior acceptance preserved. Long paths and commas in command rules are supported.
 - Defaults to no wall-clock termination; explicit runtime limits remain available, and old jobs can remove their limit during same-session recovery.
-- Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode retain their native CLI adapters.
+- Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode/Pi retain native CLI adapters.
 - Optionally sends macOS reminders and returns terminal results to the original Codex task for independent review, without model polling while waiting.
 - Observes hooks and structured progress without repeated model calls to check status.
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
@@ -22,7 +22,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 
 ## When to delegate
 
-This skill acts only on an explicit external route; a host routing skill still owns native-worker decisions. A new external job requires both an explicit request for Claude, Kimi, or OpenCode and one whole coherent responsibility — investigation, implementation, focused verification, and only the documentation that is tightly coupled — that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this skill started, or recovering it after interruption, are allowed resolution paths that do not need a new explicit request.
+This skill acts only on an explicit external route; a host routing skill still owns native-worker decisions. A new external job requires both an explicit request for Claude, Kimi, OpenCode, or Pi and one whole coherent responsibility — investigation, implementation, focused verification, and only the documentation that is tightly coupled — that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this skill started, or recovering it after interruption, are allowed resolution paths that do not need a new explicit request.
 
 Resolve canonical names and established aliases to backends before dispatch. For one responsibility, merge labels that resolve to the same backend and start at most one job per distinct canonical backend. A named route is fulfilled only after its saved `backend` is confirmed from the start record or status; model and effort claims also require native completion verification. The coordinating Codex must not label or report any worker as an external backend unless that saved backend matches, and a native worker cannot satisfy the route.
 
@@ -36,11 +36,12 @@ Without an explicit external route this skill does not claim routing precedence 
 
 | Capability | Current scope |
 | --- | --- |
-| Local Claude SDK / Kimi CLI / OpenCode CLI delegation | Validated on macOS; not a supported Windows local runner |
+| Local Claude SDK / Kimi CLI / OpenCode CLI / Pi CLI delegation | Validated on macOS; not a supported Windows local runner |
 | Remote Codex observation | macOS observer → existing Windows SSH host with Node.js and PowerShell |
 | OpenCode profile | Reference CLI 1.18.30; capability-checked versions; `deepseek/deepseek-flash`, variant `high` |
 | Claude profile | `claude-opus-5`, effort `max`; restricted settings require CLI 2.1.248+ |
 | Kimi profile | `kimi-code/k3-256k`, effort `max`; existing thinking settings and managed hooks required |
+| Pi profile | OpenRouter `stealth/union-alpha`, thinking `off`; exact model/auth preflight, isolated native session, extensions disabled |
 
 Profiles are fixed and verified by the adapters. This release does not expose arbitrary model selection. OpenCode records the actual version and checks required CLI options before starting; a different version alone does not block execution. Native session, model, effort, and completion verification remain mandatory after each round. Passing the option check is not proof that every behavior of a new release is compatible.
 
@@ -63,7 +64,7 @@ fi
 
 The **whole `skill/` folder** is required. MCP/SDK needs **Python 3.12+** and the pinned dependencies; the original CLI path supports Python 3.9+ without them. The selected CLI must already be installed and authenticated. Node.js is needed for remote observation and the JavaScript tests. This repository does not install model clients, copy login credentials, or configure providers.
 
-For Kimi, read [the setup reference](skill/references/kimi.md) before installing its three managed hooks from the final installed path. OpenCode uses per-process plugin configuration and preserves existing user plugins; Claude uses isolated task settings and task-scoped SDK hooks. Global/project custom hooks are not automatically inherited.
+For Kimi, read [the setup reference](skill/references/kimi.md) before installing its three managed hooks from the final installed path. For Pi, read [the Pi and OpenRouter reference](skill/references/pi.md); the exact Union Alpha model must resolve before dispatch. OpenCode uses per-process plugin configuration and preserves existing user plugins; Claude uses isolated task settings and task-scoped SDK hooks. Global/project custom hooks are not automatically inherited.
 
 For MCP, create the environment at the final installed path and install the pinned packages:
 
@@ -107,11 +108,11 @@ The Kimi hook receiver requires a working `/usr/bin/python3`; verify it with `/u
 
 ## Permissions and evidence
 
-Default OpenCode/Kimi profiles are read-only. Opting into their Bash tool grants shell capability, not Claude-style command-pattern filtering. See the backend references before adding tools. This tool does not create an operating-system sandbox.
+Default OpenCode/Kimi/Pi profiles are read-only. Opting into a CLI backend's Bash or PowerShell tool grants shell capability, not Claude-style command-pattern filtering. See the backend references before adding tools. This tool does not create an operating-system sandbox.
 
 Completion hooks and idle events are notifications, not proof of success. The worker checks native records at the SDK result boundary or, for CLI rounds, after process exit. SDK acceptance closes the idle connection; waiting alone makes no new model calls. Automatic task continuation is a separate opt-in notification subscription, not a consequence of waiting or receiving a hook. Closed-app and reboot recovery are not guaranteed.
 
-Quota monitoring uses Claude's native account windows. Missing or stale data remains unknown; this is not a guaranteed hard spending cap. Kimi and DeepSeek account quotas are not monitored.
+Quota monitoring uses Claude's native account windows. Missing or stale data remains unknown; this is not a guaranteed hard spending cap. Kimi, DeepSeek, and Pi/OpenRouter account quotas are not monitored.
 
 Task prompts, CLI streams, credentials, configuration, and task evidence are **not part of this repository**. Exported evidence contains visible model responses and provenance, not private reasoning; review it before sharing. Local routing and file hashes are not a defense against a malicious process running as the same user.
 
@@ -126,7 +127,7 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **243 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **250 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the remaining runtime refactor.
 
@@ -138,7 +139,7 @@ Evidence categories and unsupported claims are separated in [validation boundari
 
 Created and maintained by Ruller_Lulu. Event mapping, plugin coexistence, and exact-turn observation patterns were developed alongside [clawd-on-desk](https://github.com/rullerzhou-afk/clawd-on-desk); that desktop application is not required.
 
-MIT licensed. See [LICENSE](LICENSE). This is an independent community project, not an official product or endorsement from OpenAI, Anthropic, Moonshot AI, DeepSeek, or OpenCode.
+MIT licensed. See [LICENSE](LICENSE). This is an independent community project, not an official product or endorsement from OpenAI, Anthropic, Moonshot AI, DeepSeek, OpenCode, Pi, or OpenRouter.
 
 Historical per-feature results and the task-continuation `reasoning_extraction`
 limit are recorded in the [changelog](CHANGELOG.md) and
@@ -146,6 +147,6 @@ limit are recorded in the [changelog](CHANGELOG.md) and
 
 ### Tool capability update (2026-09-13)
 
-Kimi's default read-only selection includes ReadMediaFile for image/video input; WebSearch, FetchURL and TodoList are selectable. Claude supports NotebookEdit and explicitly authorized WebFetch/WebSearch. OpenCode adds webfetch/websearch/todowrite/lsp, with write/apply_patch aliases mapped to edit. CLI and MCP share one catalog; `scripts/delegate.py capabilities` lists it offline. See [capabilities and existing-session limits](skill/references/tools.md).
+Kimi's default read-only selection includes ReadMediaFile for image/video input; WebSearch, FetchURL and TodoList are selectable. Claude supports NotebookEdit and explicitly authorized WebFetch/WebSearch. OpenCode adds webfetch/websearch/todowrite/lsp, with write/apply_patch aliases mapped to edit. Pi defaults to read/grep/find/ls and disables extensions, skills, prompt templates, themes, and project context files for delegated runs. CLI and MCP share one catalog; `scripts/delegate.py capabilities` lists it offline. See [capabilities and existing-session limits](skill/references/tools.md).
 
 One real Kimi 0.42.0 task used ReadMediaFile, returned image content, and correctly identified a synthetic image's colors and shapes without Bash. New web/notebook/LSP tools have not been exercised against their real providers. Existing Kimi sessions retain their saved tool profile; this update does not change it.

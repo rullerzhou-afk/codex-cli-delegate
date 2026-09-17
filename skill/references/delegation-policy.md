@@ -1,7 +1,7 @@
 # External delegation policy
 
 This reference is the canonical policy for when and how this Skill hands work
-to Claude, Kimi, or OpenCode, and how it coexists with host routing. The Skill
+to Claude, Kimi, OpenCode, or Pi, and how it coexists with host routing. The Skill
 summarizes it in `SKILL.md`; the README states the user-visible version.
 
 It is deliberately policy text, not a routing engine, scoring system, or
@@ -23,7 +23,7 @@ scheduler. There is no silent route or model fallback.
 
 A new external job requires both of these together:
 
-- An explicit request for Claude, Kimi, or OpenCode, by name or by invoking
+- An explicit request for Claude, Kimi, OpenCode, or Pi, by name or by invoking
   this Skill; and
 - One whole coherent responsibility that can be transferred with acceptable
   coordination cost. That responsibility should include investigation,
@@ -35,7 +35,7 @@ external job this Skill already started are allowed resolution paths that do
 not need a new explicit request. The negative triggers below still stop a new
 dispatch.
 
-An established user alias for Claude, Kimi, or OpenCode is equivalent to
+An established user alias for Claude, Kimi, OpenCode, or Pi is equivalent to
 naming that canonical external route. Resolve every name and alias to its
 canonical backend before dispatch. For one responsibility, merge repeated
 labels that resolve to the same backend and start at most one job per distinct
@@ -121,6 +121,8 @@ the contract checks:
 
 - A user asks to have OpenCode review a patch: delegate to OpenCode with a
   read-only profile and review independently.
+- A user asks Pi to inspect a repository: delegate to the Pi backend with its
+  read-only profile, then verify the saved backend and exact OpenRouter model.
 - A user names an established alias for OpenCode: resolve the alias and start
   an OpenCode backend job. A native worker with a similar task name is not that
   job and must not be presented as the requested route.

@@ -18,7 +18,7 @@ README_ZH = REPO / "README.zh-CN.md"
 # Concept -> phrases that must all appear. Kept as stable semantic anchors, not
 # a verbatim copy of the prose, so wording can improve without weakening intent.
 REFERENCE_REQUIRED = {
-    "combined_gate": ["new external job requires both", "explicit request for Claude, Kimi, or OpenCode",
+    "combined_gate": ["new external job requires both", "explicit request for Claude, Kimi, OpenCode, or Pi",
                       "whole coherent responsibility", "coordination cost"],
     "gate_neither_alone": ["Neither condition alone opens the gate"],
     "resolution_paths": ["Continuation and recovery of an external job this Skill already started",
@@ -63,7 +63,7 @@ REFERENCE_REQUIRED = {
 }
 
 SKILL_REQUIRED = [
-    "new external job requires both an explicit request for Claude, Kimi, or OpenCode",
+    "new external job requires both an explicit request for Claude, Kimi, OpenCode, or Pi",
     "one whole coherent responsibility",
     "coordination cost",
     "Neither condition alone is enough",
@@ -107,7 +107,7 @@ SKILL_REQUIRED = [
 
 README_REQUIRED = [
     "explicit external route",
-    "new external job requires both an explicit request for Claude, Kimi, or OpenCode",
+    "new external job requires both an explicit request for Claude, Kimi, OpenCode, or Pi",
     "one whole coherent responsibility",
     "coordination cost",
     "allowed resolution paths",
@@ -246,6 +246,7 @@ class PolicyText(unittest.TestCase):
         self.assertIn("claude", frontmatter)
         self.assertIn("kimi", frontmatter)
         self.assertIn("opencode", frontmatter)
+        self.assertIn("pi", frontmatter)
         self.assert_phrases(read(AGENT_METADATA), AGENT_REQUIRED, "agents/openai.yaml")
         self.assert_forbidden_absent(read(AGENT_METADATA),
                                      FORBIDDEN_EN + ["for every explicitly named external backend"],

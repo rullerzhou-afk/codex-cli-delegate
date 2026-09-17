@@ -1,6 +1,6 @@
 # 安静等待与事件处理
 
-派单前读取。本轮由 Python worker 观察执行方的结构化输出与 hooks，不调用模型；Codex 等待一次有意义的事件后再作判断。Claude 使用单轮 settings；Kimi 使用一次安装的 3 条委派 hooks，见 [Kimi 参考](kimi.md)。OpenCode DeepSeek使用本轮插件通知及原生会话核验，见 [OpenCode 参考](opencode.md)。没有 MCP 服务、桌面私有接口或定时模型轮询。
+派单前读取。本轮由 Python worker 观察执行方的结构化输出与 hooks，不调用模型；Codex 等待一次有意义的事件后再作判断。Claude 使用单轮 settings；Kimi 使用一次安装的 3 条委派 hooks，见 [Kimi 参考](kimi.md)。OpenCode DeepSeek 使用本轮插件通知及原生会话核验，见 [OpenCode 参考](opencode.md)。Pi 使用 JSON 事件与隔离的原生会话文件，不安装 hooks，见 [Pi 参考](pi.md)。没有桌面私有接口或定时模型轮询。
 
 ## 调用方式
 
@@ -41,7 +41,7 @@ text({exit_code: r.exit_code, output});
 
 ## 信号和证据边界
 
-Claude 本轮注册 `Stop`、`StopFailure`、`PostToolUseFailure`、`Notification(idle_prompt)`；Kimi 接收前三种事件。接收端只收匹配 job、轮次 token、session 和工作目录的主会话事件；忽略子代理与过期回调。Stop 可能来自暂停或其他 hook 的续跑，idle 提醒也不保证在 `-p` 下出现，因此它们只作记录，最终退出和结构化成功证据才决定可审查状态。没有 hook 时，进程退出与结构化工具失败仍有兜底。
+Claude 本轮注册 `Stop`、`StopFailure`、`PostToolUseFailure`、`Notification(idle_prompt)`；Kimi 接收前三种事件。OpenCode 使用本轮插件；Pi 不依赖 hooks，直接读取 JSON 事件和原生 session JSONL。接收端只收匹配 job、轮次 token、session 和工作目录的主会话事件；忽略子代理与过期回调。Stop 可能来自暂停或其他 hook 的续跑，idle 提醒也不保证在 `-p` 下出现，因此它们只作记录，最终退出和结构化成功证据才决定可审查状态。没有 hook 时，进程退出与结构化工具失败仍有兜底。
 
 `PostToolUseFailure` 是工具执行失败，不覆盖所有权限拒绝或参数校验错误；`StopFailure` 是 API 错误结束一轮。通知不是让 Claude 续跑的指令，脚本不会输出阻塞/催促内容。
 

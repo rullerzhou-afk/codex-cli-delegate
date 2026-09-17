@@ -224,7 +224,7 @@ class PublicMCP(unittest.IsolatedAsyncioTestCase):
                     listed = await client.call_tool("delegate_list", {"owner": "wire-owner"})
                     self.assertFalse(listed.is_error, listed)
                     bad = await client.call_tool("delegate_start", {"owner": "wire-owner",
-                        "request_id": "bad", "cwd": str(cwd), "task": "x", "backend": "pi"})
+                        "request_id": "bad", "cwd": str(cwd), "task": "x", "backend": "unsupported"})
                     self.assertTrue(bad.is_error)
                     self.assertEqual(bad.structured_content["error"], "unsupported_backend")
                     started = await client.call_tool("delegate_start", spec)

@@ -4,6 +4,29 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Pi / OpenRouter Union Alpha backend
+
+- Added `pi` as a fourth external backend through the existing transport seam.
+  It uses Pi's non-interactive JSON mode, one isolated native session per job,
+  exact same-session revisions, and stdin task delivery.
+- Fixed the route to OpenRouter `stealth/union-alpha` with thinking `off`.
+  Every start/revision checks Pi capabilities, OpenRouter auth, and exact model
+  resolution; every completed round verifies native session/cwd, unchanged
+  revision prefix, actual provider/model, effective thinking level, completion,
+  and visible final-text correspondence. No route/model fallback is accepted.
+- Delegated Pi runs disable extensions, skills, prompt templates, themes, and
+  project context files. The default tool selection is read/grep/find/ls;
+  write/edit and whole-shell tools require explicit selection.
+- Added Pi to CLI/MCP, status, notifications, evidence export, English/Chinese
+  policy, capability docs, public contracts, architecture, and validation
+  boundaries. Existing jobs and schema version remain compatible.
+- Real macOS smoke: Pi 0.85.1 completed two rounds in the same isolated native
+  session through OpenRouter Union Alpha, with model/effort/session evidence
+  passing both times. Future stealth-model availability and pricing remain
+  outside this repository's guarantees.
+- Current aggregate after this update: 250 Python and 11 JavaScript tests pass
+  across the portable and macOS process-identity groups.
+
 ## Unreleased — Phase 2: separate the runtime by responsibility
 
 - Extracted persisted job/round access and schema/migration into
@@ -18,8 +41,9 @@ command that produces it, see [Tests](README.md#tests).
   and the CLI `worker_run` dispatch is provider-neutral; a new adapter (or test
   fake) is registered without editing that dispatch. The Claude Agent SDK
   idle-connection refresh (`sdk_scope_changed`/`close_idle`) remains a disclosed
-  compatibility branch outside the adapter. The public CLI/MCP allowlist still
-  permits only Claude/Kimi/OpenCode.
+  compatibility branch outside the adapter. At that phase boundary the public
+  CLI/MCP allowlist permitted Claude/Kimi/OpenCode; the later Pi update extends
+  it through the same seam.
 - Moved the reusable process wait/timeout action into `delegate_process.py`, and
   the provider-neutral stop and acceptance transitions into
   `delegate_recovery.stop_transition` and
@@ -35,8 +59,8 @@ command that produces it, see [Tests](README.md#tests).
   later additive route-identity fix exposes the saved `backend` in retained CLI
   `start`/`list` replies. Persisted fixtures and schemas remain unchanged; no
   schema bump. See [architecture](docs/ARCHITECTURE.md).
-- Current aggregate: 243 Python + 11 JavaScript tests pass locally with
-  fixtures (no paid model call).
+- Historical Phase 2 aggregate: 243 Python + 11 JavaScript tests passed locally
+  with fixtures (no paid model call).
 
 ## Unreleased — Phase 1: tighten external-delegation policy
 

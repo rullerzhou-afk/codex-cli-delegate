@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegate
-description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
@@ -9,7 +9,7 @@ Codex prepares the task and independently reviews the result. Prefer the `codex-
 
 ## When to delegate
 
-This Skill acts only on an explicit external route. A new external job requires both an explicit request for Claude, Kimi, or OpenCode, by name or by invoking this Skill, and one whole coherent responsibility (investigation, implementation, focused verification, and necessary documentation only when those parts are tightly coupled) that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this Skill already started, or recovering it after interruption or context loss, are allowed resolution paths that do not need a new explicit request.
+This Skill acts only on an explicit external route. A new external job requires both an explicit request for Claude, Kimi, OpenCode, or Pi, by name or by invoking this Skill, and one whole coherent responsibility (investigation, implementation, focused verification, and necessary documentation only when those parts are tightly coupled) that can be transferred at acceptable coordination cost. Neither condition alone is enough. Continuing an external job this Skill already started, or recovering it after interruption or context loss, are allowed resolution paths that do not need a new explicit request.
 
 Resolve every canonical name and established alias to its backend before dispatch. For one responsibility, merge repeated labels that resolve to the same backend and start at most one job per distinct canonical backend. A named route is satisfied only after starting or continuing a matching job and confirming its saved `backend` in the start record or `delegate_status`. Report model and effort only after native completion verification. The coordinating Codex must not label or report any worker as an external backend unless that saved backend matches; a native worker has no matching external job and cannot satisfy the route.
 
@@ -35,7 +35,7 @@ Worktrees and tool allowlists are specific controls, not an operating-system san
 
 - Before tasks that execute scripts, builds, or tests, check only the necessary commands, dependencies, and inputs. Reuse the existing environment; pure reviews do not need a full environment checklist. Resolve preparation within existing authorization.
 - Preserve the user's authorized scope and existing changes. Every concurrent job on an overlapping checkout needs its own non-overlapping worktree or clone, even when read-only; do not bypass this reservation with another state root. A custom state root disables conflict detection across state roots; it does not release or supersede the reservation. Keep real jobs in the shared default state root `${CODEX_HOME:-~/.codex}/claude-delegate`; custom state roots are for isolated tests.
-- Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.
+- Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`, Pi `openrouter/stealth/union-alpha/off`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.
 - Claude uses restricted task settings. Declare outside references with `read_dirs`, required inputs with `required_files`, and only narrow authorized Bash rules in `allow_tools`. SDK mode rejects Bash `run_in_background`; do not authorize commands that background themselves or evade the write scope. This is not an OS sandbox. Add authorized commands or references directly with revise. Supply the actual permitted command forms so the agent does not have to guess path spellings; resolve equivalent forms within the existing authorization. User/project custom permissions and hooks are not automatically inherited. If the MCP schema is old, use the installed skill virtual environment to run `scripts/delegate.py revise` with `--expected-round`, `--allow-tool`, `--read-dir`, or `--require-file`; do not redispatch the job or ask the user to restart it.
 - Any applicable Claude quota window at 90% pauses subsequent dispatches and revisions while allowing the active round to finish. Unknown or stale quota is not zero. Do not bypass a pause with a different account, model, threshold, or state root. Read [quota and inputs](references/quota-and-inputs.md) when needed.
 - Preserve complete visible model output and exact provenance for material findings, blockers, architecture decisions, or disagreements. Follow [evidence and adjudication](references/review-evidence.md), independently decide each finding, and pass `evidence_dir` to accept. Status summaries are not original evidence; identify reviewers who did not participate.
@@ -46,7 +46,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 ## Backend references
 
 - [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
-- [Kimi](references/kimi.md) and [OpenCode](references/opencode.md): native CLI adapters, tool selection, configuration, and existing hooks. Their Bash permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented. Pi is not implemented.
+- [Kimi](references/kimi.md), [OpenCode](references/opencode.md), and [Pi](references/pi.md): native CLI adapters, tool selection, configuration, JSON events, and native evidence. Bash or PowerShell permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented.
 - [Remote Windows Codex](references/remote-codex.md): observe an exact existing remote session/turn, then verify its artifacts. This is separate from local delegation and uses `scripts/remote_codex.py`.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 

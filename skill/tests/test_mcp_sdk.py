@@ -338,13 +338,14 @@ class MCPProtocol(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("wake_codex", notify_tool.input_schema["properties"])
                     start_tool = next(t for t in tools.tools if t.name == "delegate_start")
                     self.assertIsNone(start_tool.input_schema["properties"]["timeout"].get("default"))
+                    self.assertIn("pi_tools", start_tool.input_schema["properties"])
                     notification = await client.call_tool("delegate_notify", {
                         "owner": "protocol-fixture", "job_id": "not-a-job", "expected_round": 0})
                     self.assertTrue(notification.is_error)
                     result = await client.call_tool("delegate_list", {"owner": "protocol-fixture"})
                     self.assertFalse(result.is_error)
                     bad = await client.call_tool("delegate_start", {"owner": "protocol-fixture", "request_id": "bad",
-                        "cwd": directory, "task": "test", "backend": "pi"})
+                        "cwd": directory, "task": "test", "backend": "unsupported"})
                     self.assertTrue(bad.is_error)
                     self.assertIn("unsupported_backend", str(bad))
 

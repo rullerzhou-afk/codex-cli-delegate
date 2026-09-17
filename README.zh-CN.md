@@ -2,11 +2,11 @@
 
 [English](README.md)
 
-由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode 执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode 保留原生 CLI 后端。包含同会话返工、hooks 通知、完成证据核验、额度预警与中断恢复，也支持观察 Windows 上准确的一轮远程 Codex CLI 工作。
+由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode／Pi 执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode/Pi 保留原生 CLI 后端。包含同会话返工、通知、完成证据核验、额度预警与中断恢复，也支持观察 Windows 上准确的一轮远程 Codex CLI 工作。
 
 ## 何时委派
 
-本 skill 只在自己启动外部任务后接管该任务；原生 worker 的路由仍由宿主 Codex 的路由 skill 决定。新开外部任务需要同时满足：用户明确要求 Claude／Kimi／OpenCode；并且是一份完整、连贯、可在可接受协调成本下交付的职责（调查、实现、针对性验证，以及与之紧密耦合的必要文档）。两个条件缺一不可。续接本 skill 已启动的外部任务，或在其中断、进程丢失或上下文丢失后恢复它，都是允许的处置路径，不需要新的明确要求。
+本 skill 只在自己启动外部任务后接管该任务；原生 worker 的路由仍由宿主 Codex 的路由 skill 决定。新开外部任务需要同时满足：用户明确要求 Claude／Kimi／OpenCode／Pi；并且是一份完整、连贯、可在可接受协调成本下交付的职责（调查、实现、针对性验证，以及与之紧密耦合的必要文档）。两个条件缺一不可。续接本 skill 已启动的外部任务，或在其中断、进程丢失或上下文丢失后恢复它，都是允许的处置路径，不需要新的明确要求。
 
 派单前先把正式名称和已建立别名解析成 canonical backend。对于同一项职责，解析到同一 backend 的重复名称合并，每个不同 backend 最多启动一个 job。只有从启动记录或状态中确认保存的 `backend` 匹配后，才可以汇报点名路线已经启动或满足；模型和 effort 还要等待原生完成证据核验。协调 Codex 不得把任何 worker 标记或汇报成与其保存 backend 不符的外部路线，原生 worker 不能满足该路线。
 
@@ -20,7 +20,7 @@
 
 从本仓库根目录，按 [英文 README 的安装步骤](README.md#install)，将完整 `skill/` 文件夹安装为 `${CODEX_HOME:-~/.codex}/skills/codex-cli-delegate`。已有版本先备份并检查差异，不直接覆盖。
 
-MCP/SDK 需要 Python 3.12+ 和 `skill/requirements.txt` 中的固定依赖；旧 CLI 路径仍支持 Python 3.9+，不需要 SDK 依赖。需要已有所选 CLI 及其登录；远程观察需要现有 SSH、Windows PowerShell 和 Node.js。本项目不安装模型客户端、不复制凭据、不配置代理。Kimi 的三条托管 hooks 需按专用参考从最终安装路径安装；Claude 和 OpenCode 使用任务配置。Claude SDK 接入任务级 hooks，不自动继承全局或项目自定义 hooks。
+MCP/SDK 需要 Python 3.12+ 和 `skill/requirements.txt` 中的固定依赖；旧 CLI 路径仍支持 Python 3.9+，不需要 SDK 依赖。需要已有所选 CLI 及其登录；远程观察需要现有 SSH、Windows PowerShell 和 Node.js。本项目不安装模型客户端、不复制凭据、不配置代理。Kimi 的三条托管 hooks 需按专用参考从最终安装路径安装；Pi 需按 [Pi 与 OpenRouter 参考](skill/references/pi.md)确认精确模型可用；Claude 和 OpenCode 使用任务配置。Claude SDK 接入任务级 hooks，不自动继承全局或项目自定义 hooks。
 
 完整复制 Skill 后，在最终安装位置创建虚拟环境并安装依赖，再按 [MCP 连接说明](skill/references/mcp.md#install-and-connect) 配置服务器及现有 Claude 可执行文件。刷新连接后，在实际 Codex 任务里调用 `delegate_list` 确认可用。配置存在不等于工具已经加载。
 
@@ -45,15 +45,15 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 ## 当前边界
 
 - 本机委派以 macOS 为已验证平台。将文件复制到 Windows 不等于 Windows 本机可运行；Mac 观察远程 Windows Codex 是另一项能力。
-- 默认配置：Claude `claude-opus-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名）。模型与校验逻辑一起固定，当前没有任意模型选择功能。
+- 默认配置：Claude `claude-opus-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名），Pi `openrouter/stealth/union-alpha/off`。模型与校验逻辑一起固定，当前没有任意模型选择功能。
 - OpenCode 以 CLI 1.18.30 为历史实测参考，已取消精确版本白名单；启动前检查所需参数，运行后核验原生记录，版本号变化本身不拦截。Kimi 要求已有思考配置；具体见 [后端参考](skill/references/kimi.md)。
-- 默认只读的后端只有明确授权后才加入编辑或 Bash。工具选择不是 OS 沙箱；Kimi/OpenCode 的 Bash 允许整个工具，不能冒充 Claude 的命令级规则。
+- 默认只读的后端只有明确授权后才加入编辑或 shell。工具选择不是 OS 沙箱；Kimi/OpenCode/Pi 的 Bash 或 PowerShell 允许整个工具，不能冒充 Claude 的命令级规则。
 - idle 或完成 hook 不代表通过验收。SDK 在本轮原生 result 到达后检查会话、本轮、模型和正式输出，旧 CLI 则在进程退出后核验，再由 Codex 检查实际文件与测试。
-- 默认不限返工次数，保留超时和异常检查。Claude 任一可靠额度窗口达到 90% 后暂停后续派单，当前轮继续完成；数据未知时不显示为零，也不保证账户永不越线。DeepSeek/Kimi 额度尚未接入。
+- 默认不限返工次数，保留超时和异常检查。Claude 任一可靠额度窗口达到 90% 后暂停后续派单，当前轮继续完成；数据未知时不显示为零，也不保证账户永不越线。DeepSeek、Kimi 与 Pi/OpenRouter 额度尚未接入。
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
-- Pi、ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
+- ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-当前统一测试结果为 **243 项 Python 和 11 项 JavaScript 全部通过**。使用 [统一测试入口](run_tests.py) 可输出一份机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
+当前统一测试结果为 **250 项 Python 和 11 项 JavaScript 全部通过**。使用 [统一测试入口](run_tests.py) 可输出一份机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
 
 历史分项数量统一保留在[更新记录](CHANGELOG.md)，不再与当前总数混排。已有 macOS 真实 SDK、通知和提供方验证属于不同证据类别，不能代替其他机器、后续 CLI 版本或 CI 的验证。详见[公开合同](docs/CONTRACTS.md)和[验证边界](docs/VALIDATION.md)。
 
@@ -73,6 +73,6 @@ Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要
 
 ### 工具能力补全（2026-09-13）
 
-Kimi 默认增加 ReadMediaFile，支持图片/视频；可选 WebSearch、FetchURL、TodoList。Claude 增加 NotebookEdit 和按任务授权的 WebFetch/WebSearch；OpenCode 增加 webfetch/websearch/todowrite/lsp，write/apply_patch 输入归一到 edit 权限。CLI 与 MCP 共用清单，`scripts/delegate.py capabilities` 可离线查询。[能力与旧会话边界](skill/references/tools.md)。
+Kimi 默认增加 ReadMediaFile，支持图片/视频；可选 WebSearch、FetchURL、TodoList。Claude 增加 NotebookEdit 和按任务授权的 WebFetch/WebSearch；OpenCode 增加 webfetch/websearch/todowrite/lsp，write/apply_patch 输入归一到 edit 权限。Pi 默认只开 read/grep/find/ls，委派进程禁用扩展、skills、提示模板、主题和项目上下文文件。CLI 与 MCP 共用清单，`scripts/delegate.py capabilities` 可离线查询。[能力与旧会话边界](skill/references/tools.md)。
 
 相关历史测试数量见[更新记录](CHANGELOG.md)。一次真实 Kimi 0.42.0 任务调用 ReadMediaFile，工具返回图片内容，并正确识别自制图片的颜色形状，没有给 Bash。新增网页/Notebook/LSP 尚未做真实提供方调用验证。更新不会给旧 Kimi 会话更换已保存的工具 profile。

@@ -73,7 +73,8 @@ EFFORT = "max"
 
 BASE_ALLOWED_TOOLS = ("Read", "Glob", "Grep")
 ENABLED_TOOLS = "Read,Write,Edit,NotebookEdit,Bash,Glob,Grep"
-from tool_catalog import CLAUDE_OPTIONAL, KIMI_TOOLS, OPENCODE_TOOLS, OPENCODE_ALIASES
+from tool_catalog import (CLAUDE_OPTIONAL, KIMI_TOOLS, OPENCODE_TOOLS,
+                          OPENCODE_ALIASES, PI_TOOLS)
 ALLOW_RULE_TOOLS = frozenset(("Read", "Write", "Edit", "Glob", "Grep", "Bash") + CLAUDE_OPTIONAL)
 
 # Only these three variables are injected, and only into the child environment.
@@ -1366,6 +1367,7 @@ def status_payload(ctx, job):
         "opencode_tools": job.get("opencode_tools"),
         "kimi_tools": job.get("kimi_tools"),
         "kimi_hooks": job.get("kimi_hooks"),
+        "pi_tools": job.get("pi_tools"),
         "requested": {"model": job.get("model"), "effort": job.get("effort")},
         "verified": {
             "ok": bool(verification.get("ok")),
@@ -1966,7 +1968,7 @@ def worker_run(ctx, args, job_id, index, job_root, log):
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="delegate.py",
-        description="Delegate rounds to Claude Code, Kimi Code or OpenCode (Codex plans and reviews).",
+        description="Delegate rounds to Claude Code, Kimi Code, OpenCode or Pi (Codex plans and reviews).",
     )
     parser.add_argument(
         "--state-dir",
@@ -1980,13 +1982,16 @@ def build_parser():
     sub.required = True
 
     start = sub.add_parser("start", help="start a new delegated job")
-    start.add_argument("--backend", choices=("claude", "kimi", "opencode"), default="claude")
+    start.add_argument("--backend", choices=("claude", "kimi", "opencode", "pi"), default="claude")
     start.add_argument("--transport", choices=("cli", "sdk"), default="cli", help="Claude transport; MCP uses sdk")
     start.add_argument("--opencode-bin", default=None, help="OpenCode executable")
     start.add_argument("--opencode-tool", action="append", default=[], choices=OPENCODE_TOOLS + tuple(OPENCODE_ALIASES))
     start.add_argument("--kimi-bin", default=None, help="Kimi executable (default: which('kimi'))")
     start.add_argument("--kimi-tool", action="append", default=[], choices=KIMI_TOOLS,
                        help="Kimi tool allowlist, repeatable; default Read/ReadMediaFile/Glob/Grep; Bash enables unrestricted shell capability")
+    start.add_argument("--pi-bin", default=None, help="Pi coding-agent executable (default: which('pi'))")
+    start.add_argument("--pi-tool", action="append", default=[], choices=PI_TOOLS,
+                       help="Pi built-in tool allowlist, repeatable; default read/grep/find/ls; shell tools are unrestricted")
     start.add_argument("--cwd", required=True, help="absolute work directory")
     start.add_argument("--prompt-file", required=True, help="file containing the task text")
     start.add_argument("--allow-tool", action="append", default=[], help="extra narrow permission rule, repeatable")

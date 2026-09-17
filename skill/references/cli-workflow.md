@@ -1,6 +1,6 @@
 # Codex CLI Delegate
 
-Use `scripts/delegate.py` from this skill's actual installed path. Default backend: Claude. Select Kimi with `start --backend kimi` and OpenCode with `start --backend opencode`. The backend stays fixed within a job; revisions resume its saved session. Reuse existing CLI installations and logins.
+Use `scripts/delegate.py` from this skill's actual installed path. Default backend: Claude. Select Kimi with `start --backend kimi`, OpenCode with `start --backend opencode`, and Pi with `start --backend pi`. The backend stays fixed within a job; revisions resume its saved session. Reuse existing CLI installations and logins.
 
 This is a community skill, not an official integration from any CLI or model provider. The local runner is validated on macOS. Copying the skill to Windows does not make it a Windows local runner.
 
@@ -11,6 +11,7 @@ Read [external delegation policy](delegation-policy.md) first. Without an explic
 - Claude: read [quota and required inputs](quota-and-inputs.md). Uses per-round restricted settings and hooks.
 - Kimi: read [Kimi setup and native evidence](kimi.md). Requires existing thinking configuration and three explicitly installed managed hooks. Normal dispatch checks them without rewriting user configuration.
 - OpenCode: read [OpenCode tools and hooks](opencode.md). Adds a per-process plugin while preserving existing plugins. Default profile is read-only.
+- Pi: read [Pi and OpenRouter setup](pi.md). Uses JSON mode, an isolated native session, and the exact Union Alpha route; extensions are disabled for delegated runs.
 - Remote Windows Codex: read [remote observation](remote-codex.md) and use `scripts/remote_codex.py`. This observes an already identified remote turn; it does not dispatch a new Codex turn.
 
 The supporting references currently contain detailed Chinese operating notes; public setup is documented in the repository's English README and Chinese companion.
@@ -21,7 +22,7 @@ The supporting references currently contain detailed Chinese operating notes; pu
 2. Use the calling task's real `CODEX_THREAD_ID` as owner. If unavailable, pass its actual identifier with `--owner`; never borrow another task's owner.
 3. Use the intended existing checkout or an authorized isolated worktree, preserving any prior edits. Every job holding a reservation occupies its checkout even when read-only; concurrent jobs need distinct non-overlapping worktrees or clones, and same/nested paths conflict. Record the baseline for independent review.
 4. Keep real jobs on the shared default state directory `${CODEX_HOME:-~/.codex}/claude-delegate`. Its legacy name preserves checkout locks and recovery compatibility. A different state root disables conflict detection across state roots; it does not release or supersede reservations and must not be used to bypass them. Reserve `--state-dir` for isolated tests.
-5. Give only the tools needed for the authorized task. Claude command rules use `--allow-tool`; Kimi and OpenCode tool selections are separate and not interchangeable. Bash permission in those backends grants the whole shell tool, not a command allowlist. Do not bypass permissions.
+5. Give only the tools needed for the authorized task. Claude command rules use `--allow-tool`; Kimi, OpenCode, and Pi tool selections are separate and not interchangeable. Bash or PowerShell permission in those backends grants the whole shell tool, not a command allowlist. Do not bypass permissions.
 6. For Claude, pass required files with `--require-file` and explicitly authorized outside reference directories with `--read-dir`. Read large files in chunks; truncated output is not the full file. OpenCode currently does not support those flags.
 
 Restricted settings do not create an OS sandbox or a worktree. Check the actual modified paths and artifacts. Delegation does not confer permission to publish, push, merge, deploy, send external messages, or alter unrelated user configuration.
@@ -33,6 +34,7 @@ Restricted settings do not create an OS sandbox or a worktree. Check the actual 
 | Claude Code | `claude-opus-5` | `max` |
 | Kimi Code | `kimi-code/k3-256k` | `max` |
 | OpenCode | `deepseek/deepseek-flash` | `high` |
+| Pi | `openrouter/stealth/union-alpha` | `off` |
 
 These are the current adapter profiles, not universal recommendations or arbitrary-model support. Do not substitute models in task text. A requested model change requires adapting the invocation and native verification together and validating the new profile. Report mismatched settings, rejected API requests, and missing evidence; never silently downgrade.
 

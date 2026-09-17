@@ -82,6 +82,8 @@ def visible_responses(data, backend, session_id):
             raise EvidenceError('Source stream contains another session')
         if backend == 'opencode' and row.get('sessionID') != session_id:
             raise EvidenceError('OpenCode source stream contains another session')
+        if backend == 'pi' and row.get('type') == 'session' and row.get('id') != session_id:
+            raise EvidenceError('Pi source stream contains another session')
         texts = []
         if backend == 'claude' and not row.get('parent_tool_use_id'):
             if row.get('type') == 'assistant':
@@ -99,6 +101,12 @@ def visible_responses(data, backend, session_id):
             part = row.get('part') or {}
             if isinstance(part.get('text'), str):
                 texts.append(('/part/text', part['text'], 'assistant_text'))
+        elif backend == 'pi' and row.get('type') == 'message_end':
+            message = row.get('message') or {}
+            if message.get('role') == 'assistant' and isinstance(message.get('content'), list):
+                for index, part in enumerate(message['content']):
+                    if isinstance(part, dict) and part.get('type') == 'text' and isinstance(part.get('text'), str):
+                        texts.append(('/message/content/%d/text' % index, part['text'], 'assistant_text'))
         for pointer, value, kind in texts:
             if value:
                 responses.append(dict(text=value, kind=kind, json_pointer=pointer, stream_line=number,
@@ -138,7 +146,7 @@ def round_sources(job, round_index, source_root):
                 or any(results[0].get(k) != v for k, v in verification['result_event'].items())):
             raise EvidenceError('SDK result does not match the finalized source stream')
     backend = job.get('backend', 'claude')
-    if backend not in ('claude', 'kimi', 'opencode'):
+    if backend not in ('claude', 'kimi', 'opencode', 'pi'):
         raise EvidenceError('Unsupported backend')
     session = verification.get('native_session_id') or job.get('session_id')
     metadata = dict(job_id=job['job_id'], owner=job['owner'], backend=backend,

@@ -31,10 +31,10 @@ root. Two distinct boundaries apply:
 | `delegate_process.py` | Process identity/liveness and conservative (Darwin refuse-on-doubt) termination |
 | `delegate_recovery.py` | Live-process blockers, conservative reconciliation, process view |
 | `delegate_completion.py` | Provider-neutral completion and acceptance record transitions |
-| `delegate_transport.py` | Transport adapter registry plus Claude/Kimi/OpenCode adapters |
+| `delegate_transport.py` | Transport adapter registry plus Claude/Kimi/OpenCode/Pi adapters |
 | `claude_task.py` | Composition root: CLI parser, public commands, worker lifecycle, Claude parsing/verification |
 | `claude_sdk_backend.py` | Claude Agent SDK transport (its own persistent worker) |
-| `kimi_backend.py`, `opencode_backend.py` | Native CLI provider adapters |
+| `kimi_backend.py`, `opencode_backend.py`, `pi_backend.py` | Native CLI provider adapters |
 | `claude_events.py`, `claude_quota.py`, `delegate_notify.py` | Hooks, quota observation, notifications/queue return |
 | `delegate_service.py`, `delegate_mcp.py` | MCP-facing application API and stdio entry point |
 | `review_evidence.py` | Independent evidence-manifest contract |
@@ -61,8 +61,8 @@ refactor, not something this change claims.
 `work/skill-verification/test_transport_seam.py` proves this: a registered fake
 enters through the real `cmd_start`, its detached worker resolves the fake, and
 Codex acceptance completes the job — without editing lifecycle dispatch. The
-public CLI/MCP backend allowlist is separate and still permits only the three
-supported providers.
+public CLI/MCP backend allowlist is separate and permits the four supported
+providers.
 
 Claude quota observation stays an adapter `launch_checks`/`revision_config`
 gate, and notification/queue delivery stays outside model execution.
@@ -94,14 +94,16 @@ exists.
 | Phase 4 — public operation and maintenance | Planned / not started |
 | Phase 5 — port, then validate additional platforms | Planned / not started |
 
-Phases 3–5 have not run: there has been no ACP pilot, no OpenCode Server or Pi
-work, and no Linux/Windows implementation. The local runner remains validated on
-macOS only.
+Phases 3–5 have not run: there has been no ACP pilot, no OpenCode Server work,
+and no Linux/Windows implementation. Pi was added independently through the
+Phase 2 provider seam and does not constitute the planned ACP evaluation. The
+local runner remains validated on macOS only.
 
 ## Compatibility
 
-Phase 2 changes no CLI/MCP JSON, tool schema, state directory, job/round
-persisted shape, request receipt format, provider profile, permission, quota, or
-exit/error code. The frozen black-box suite
-(`work/skill-verification/test_blackbox_contract.py`) is unchanged. Old,
-current, and accepted job fixtures load unchanged; no schema version was bumped.
+The original Phase 2 extraction changed no CLI/MCP JSON, tool schema, state
+directory, job/round persisted shape, request receipt format, provider profile,
+permission, quota, or exit/error code. The later Pi addition extends the public
+backend/tool allowlists and adds backend-specific optional state while retaining
+the existing generic schema. Old, current, and accepted job fixtures still load
+unchanged; no schema version was bumped.

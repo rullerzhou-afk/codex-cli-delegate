@@ -12,8 +12,7 @@ directly. That is a disclosed remaining refactor, not adapter-routed behavior.
 
 A new adapter (including a test fake) is added by implementing `Transport` and
 calling `register(...)` for start/revision/CLI-worker behavior. The public
-CLI/MCP backend allowlist is separate and still permits only the three supported
-providers.
+CLI/MCP backend allowlist is separate from this registry.
 
 Adapters are thin and deliberately call back into `claude_task` and the
 provider modules through module attributes, so existing white-box patch points
@@ -70,6 +69,8 @@ class Transport:
             raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
         if getattr(args, "kimi_bin", None) or getattr(args, "kimi_tool", None):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
+        if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
+            raise CliError("wrong_backend", "Pi options require --backend pi")
         return {}, {}, self.new_session_id()
 
     def revision_additions(self, additions):
@@ -135,6 +136,8 @@ class ClaudeTransport(Transport):
             raise CliError("wrong_backend", "OpenCode options require --backend opencode")
         if getattr(args, "kimi_bin", None) or getattr(args, "kimi_tool", None):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
+        if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
+            raise CliError("wrong_backend", "Pi options require --backend pi")
         from claude_quota import account_home
         claude_bin = ct.resolve_claude_bin(ctx.claude_bin_raw)
         quota = ct.quota_gate(ctx, account_home(), refresh=True)
@@ -195,6 +198,8 @@ class KimiTransport(Transport):
     def start_config(self, ctx, args, prompt, read_dirs, required_files):
         if getattr(args, "opencode_bin", None) or getattr(args, "opencode_tool", None):
             raise CliError("wrong_backend", "OpenCode options require --backend opencode")
+        if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
+            raise CliError("wrong_backend", "Pi options require --backend pi")
         if read_dirs or required_files:
             raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
         if os.path.getsize(prompt) > 64 * 1024:
@@ -248,6 +253,8 @@ class OpenCodeTransport(Transport):
             raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
         if getattr(args, "kimi_bin", None) or getattr(args, "kimi_tool", None):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
+        if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
+            raise CliError("wrong_backend", "Pi options require --backend pi")
         import opencode_backend
         fields = opencode_backend.prepare(args.opencode_bin, args.opencode_tool, args.allow_tool)
         fields.update(model=opencode_backend.MODEL, effort=opencode_backend.EFFORT, claude_bin=None,
@@ -277,6 +284,60 @@ class OpenCodeTransport(Transport):
     def verify(self, job, record, stdout_path, exit_code):
         import opencode_backend
         return opencode_backend.verify(job, record, stdout_path, exit_code)
+
+
+class PiTransport(Transport):
+    """Pi CLI adapter using an isolated native session and JSON events."""
+
+    name = "pi"
+    native_session = True
+
+    def new_session_id(self):
+        import uuid
+        return str(uuid.uuid4())
+
+    def start_config(self, ctx, args, prompt, read_dirs, required_files):
+        if read_dirs or required_files:
+            raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        if getattr(args, "kimi_bin", None) or getattr(args, "kimi_tool", None):
+            raise CliError("wrong_backend", "Kimi options require --backend kimi")
+        if getattr(args, "opencode_bin", None) or getattr(args, "opencode_tool", None):
+            raise CliError("wrong_backend", "OpenCode options require --backend opencode")
+        import pi_backend
+        session_id = self.new_session_id()
+        fields = pi_backend.prepare(args.pi_bin, args.pi_tool, args.allow_tool)
+        fields.update(model=pi_backend.MODEL, effort=pi_backend.EFFORT,
+                      pi_session_dir=os.path.join(ctx.state_dir, "pi-sessions", session_id),
+                      claude_bin=None, claude_config_dir=None, claude_config_env=None)
+        return fields, {}, session_id
+
+    def revision_config(self, ctx, job, read_dirs, required_files):
+        if read_dirs or required_files:
+            raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        import pi_backend
+        actual = pi_backend.prepare(job["pi_bin"], job["pi_tools"], [])
+        return {"pi_version": actual["pi_version"],
+                "pi_compatibility": actual["pi_compatibility"]}
+
+    def baseline(self, job):
+        import pi_backend
+        return pi_backend.baseline(job)
+
+    def prepare(self, state_dir, job, record, resume, prompt_file, directory):
+        import claude_task as ct
+        import pi_backend
+        argv, env, prompt_file = pi_backend.setup(job, record, resume, prompt_file, directory)
+        monitor = pi_backend.PiMonitor(directory, job["session_id"], record["started_epoch"], ct.write_json)
+        return PreparedRound(argv=argv, env=env, prompt_file=prompt_file, monitor=monitor)
+
+    def launch_stamp(self, job, stored, stored_record):
+        stored["pi_version"] = job["pi_version"]
+        stored["pi_compatibility"] = job["pi_compatibility"]
+        stored_record["pi_version"] = job["pi_version"]
+
+    def verify(self, job, record, stdout_path, exit_code):
+        import pi_backend
+        return pi_backend.verify(job, record, stdout_path, exit_code)
 
 
 _REGISTRY = {}
@@ -311,3 +372,4 @@ def for_name(name):
 register(ClaudeTransport())
 register(KimiTransport())
 register(OpenCodeTransport())
+register(PiTransport())

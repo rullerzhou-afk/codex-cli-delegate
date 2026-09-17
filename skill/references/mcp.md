@@ -32,7 +32,7 @@ Reuse the existing CLI login; the adapter explicitly selects that executable ins
 
 | Tool | Main inputs | Behavior |
 | --- | --- | --- |
-| `delegate_start` | owner, request_id, cwd, task, backend, permissions, inputs | Save a job and launch; Claude uses SDK, Kimi/OpenCode use CLI |
+| `delegate_start` | owner, request_id, cwd, task, backend, permissions, inputs | Save a job and launch; Claude uses SDK, Kimi/OpenCode/Pi use CLI |
 | `delegate_revise` | owner, request_id, job_id, expected_round, task, recover | Reuse an idle SDK connection or resume the saved native session |
 | `delegate_status` | owner, job_id, details | Compact status; optional diagnostic details |
 | `delegate_list` | owner | Find the caller's jobs; returns a jobs list |
@@ -65,7 +65,7 @@ The offline test suite uses the actual pinned SDK with a protocol fake CLI, plus
 
 A separate macOS run on 2026-09-12 used Claude Code 2.1.261 and `claude-opus-5/max`: two rounds shared a process; a third resumed the same session after stopping and starting a new process. Conversation context, file output, native verification, Stop events, and cache reads were observed. This was an implementation smoke test, not a public fixture or proof of another installation. Linux/Windows local MCP/SDK execution and deliberately induced provider outages are not validated. Other SDK hooks and all permission-denial cases were not separately exercised against the real provider in that run.
 
-Dependencies are pinned to `claude-agent-sdk==0.2.152` and `mcp==2.2.0`. The adapter subclasses one internal SDK subprocess transport to retain raw events and actual process identity. Upgrading requires rechecking protocol behavior, hooks, evidence correspondence, and process cleanup. Kimi/OpenCode retain their CLI adapters; Pi, ACP, and OpenCode Server are not implemented.
+Dependencies are pinned to `claude-agent-sdk==0.2.152` and `mcp==2.2.0`. The adapter subclasses one internal SDK subprocess transport to retain raw events and actual process identity. Upgrading requires rechecking protocol behavior, hooks, evidence correspondence, and process cleanup. Kimi/OpenCode/Pi retain their CLI adapters; ACP and OpenCode Server are not implemented.
 
 For opt-in background completion reminders, see [notifications](notifications.md). The detached watcher makes no model calls and survives MCP disconnection; arm it again after each revision.
 
@@ -77,4 +77,4 @@ Existing jobs keep saved numeric limits. `delegate_revise` defaults to `timeout=
 
 An already loaded MCP may still have the old `timeout=1800` schema and in-memory defaults. Inspect the returned/saved timeout. Until the connection loads the new entry point, use the installed CLI with `start --transport sdk --timeout unlimited` or `revise --recover --timeout unlimited`. Updating files does not alter timers in already running old workers.
 
-Kimi/OpenCode dispatch/status returns selected `tools`; Claude returns saved `allow_tools` rules. Kimi defaults include ReadMediaFile; see [capabilities](tools.md). A previously loaded MCP may retain old defaults: inspect the receipt and use explicit selections or the updated CLI without redispatching an existing job.
+Kimi/OpenCode/Pi dispatch/status returns selected `tools`; Claude returns saved `allow_tools` rules. Kimi defaults include ReadMediaFile; Pi defaults to read/grep/find/ls. See [capabilities](tools.md). A previously loaded MCP may retain old defaults: inspect the receipt and use explicit selections or the updated CLI without redispatching an existing job.

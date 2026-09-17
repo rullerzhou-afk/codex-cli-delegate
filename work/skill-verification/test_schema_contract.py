@@ -333,7 +333,7 @@ class ErrorVocabulary(unittest.TestCase):
         # The CLI backends raise through a wrapper: module-level error('code')
         # becomes CliError(code). self.error(...) is the event monitor, not a
         # CliError, so it is deliberately not collected.
-        for name in ("kimi_backend.py", "opencode_backend.py"):
+        for name in ("kimi_backend.py", "opencode_backend.py", "pi_backend.py"):
             text = (scripts / name).read_text(encoding="utf-8")
             codes.update(re.findall(r"(?<![.\w])error\(\s*['\"]([a-z_]+)['\"]", text))
         return codes
@@ -349,7 +349,7 @@ class ErrorVocabulary(unittest.TestCase):
 
     def test_monitor_error_calls_are_not_treated_as_clierror(self):
         codes = self.collect()
-        for monitor_code in ("opencode_error", "tool_result", "kimi_retry"):
+        for monitor_code in ("opencode_error", "tool_result", "kimi_retry", "pi_retry"):
             self.assertNotIn(monitor_code, codes)
 
 

@@ -31,9 +31,9 @@ The plan borrows external-delegation principles from Codex Worker Routing and ev
 
 The system should have four visible layers:
 
-1. **External-delegation policy** — the Skill describes when and how to hand a coherent responsibility to Claude, Kimi, or OpenCode. Direct work and host-provided native worker selection remain outside this repository. Explicit user instructions select the route. Without an explicit external-route instruction, this Skill does not claim routing precedence; it applies only after its tools start an external job. Any installed host routing skill continues to own native-worker decisions.
+1. **External-delegation policy** — the Skill describes when and how to hand a coherent responsibility to Claude, Kimi, OpenCode, or Pi. Direct work and host-provided native worker selection remain outside this repository. Explicit user instructions select the route. Without an explicit external-route instruction, this Skill does not claim routing precedence; it applies only after its tools start an external job. Any installed host routing skill continues to own native-worker decisions.
 2. **Orchestration** — provider-independent job ownership, rounds, request deduplication, checkout reservations, quota gates, recovery, notification subscriptions, and acceptance records.
-3. **Transport adapters** — Claude Agent SDK, current Kimi/OpenCode CLI adapters, and an optional experimental ACP adapter. A transport reports events; it does not decide acceptance or bypass orchestration policy.
+3. **Transport adapters** — Claude Agent SDK, current Kimi/OpenCode/Pi CLI adapters, and an optional experimental ACP adapter. A transport reports events; it does not decide acceptance or bypass orchestration policy.
 4. **Evidence normalization** — provider-native records are preserved, then summarized into one versioned completion record without erasing provenance.
 
 The CLI and MCP entry points remain thin interfaces over the same orchestration core.
@@ -59,7 +59,7 @@ Exit gate: a clean checkout reproduces one documented fixture total; both schema
 
 Update the Skill frontmatter, main instructions, and references together:
 
-- state positive triggers for explicit Claude/Kimi/OpenCode delegation, continuation of an external job already started by this Skill, and recovery of that job after interruption or context loss;
+- state positive triggers for explicit Claude/Kimi/OpenCode/Pi delegation, continuation of an external job already started by this Skill, and recovery of that job after interruption or context loss;
 - state negative triggers for native-worker-only requests, explicit solo work, casual explanations, tiny work, and work that is already nearly complete;
 - delegate only when a whole responsibility can be transferred with acceptable coordination cost;
 - use one external worker for investigation, implementation, focused verification, and necessary documentation when those parts are tightly coupled;
