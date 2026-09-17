@@ -180,6 +180,28 @@ class PiBackendTests(unittest.TestCase):
                 pi.prepare("/bin/echo", ["read"], [])
         self.assertEqual(got.exception.code, "pi_platform")
 
+    def test_launcher_runtime_uses_shebang_interpreter(self):
+        absolute = self.root / "absolute-runtime"
+        absolute.write_text("runtime")
+        absolute.chmod(0o755)
+        launcher = self.root / "pi-absolute"
+        launcher.write_text("#!" + str(absolute) + "\n")
+        launcher.chmod(0o755)
+        self.assertEqual(pi.launcher_runtime(str(launcher)), str(absolute))
+
+        named = self.root / "nodejs"
+        named.write_text("runtime")
+        named.chmod(0o755)
+        launcher.write_text("#!/usr/bin/env -S nodejs --flag\n")
+        with patch.object(pi.shutil, "which", return_value=str(named)) as which:
+            self.assertEqual(pi.launcher_runtime(str(launcher)), str(named))
+        which.assert_called_once_with("nodejs")
+
+        launcher.write_text("#!/usr/bin/env -i node\n")
+        with self.assertRaises(ct.CliError) as got:
+            pi.launcher_runtime(str(launcher))
+        self.assertEqual(got.exception.code, "pi_incompatible")
+
     def test_marker_id_tool_profile_effort_and_retry_fail_closed(self):
         self.native[1].pop("id")
         self.save()

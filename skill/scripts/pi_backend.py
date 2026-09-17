@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -44,6 +45,37 @@ def probe(binary, *args, timeout=10):
         error("pi_probe", "Pi " + " ".join(args) + " probe failed (" + type(exc).__name__ + ")")
 
 
+def launcher_runtime(binary):
+    """Resolve the executable that the kernel runs for a script launcher."""
+    try:
+        with Path(binary).open("rb") as source:
+            first_line = source.readline(256).decode("utf-8", "replace")
+    except OSError:
+        return binary
+    if not first_line.startswith("#!"):
+        return binary
+    try:
+        words = shlex.split(first_line[2:].strip())
+    except ValueError:
+        words = []
+    if not words:
+        error("pi_incompatible", "Pi launcher has an invalid interpreter line")
+    interpreter = words[0]
+    if os.path.basename(interpreter) == "env":
+        args = words[1:]
+        if args[:1] == ["-S"]:
+            args = args[1:]
+        while args and "=" in args[0] and not args[0].startswith("="):
+            args = args[1:]
+        if not args or args[0].startswith("-"):
+            error("pi_incompatible", "Pi launcher uses an unsupported env interpreter line")
+        interpreter = args[0]
+    resolved = interpreter if os.path.isabs(interpreter) else shutil.which(interpreter)
+    if not resolved or not os.path.isfile(resolved) or not os.access(resolved, os.X_OK):
+        error("pi_incompatible", "Pi launcher interpreter could not be resolved")
+    return os.path.realpath(resolved)
+
+
 def prepare(explicit, requested_tools, allow_rules):
     """Validate the installed CLI, OpenRouter auth, exact model, and tools."""
     chosen = select("pi", requested_tools)
@@ -55,17 +87,7 @@ def prepare(explicit, requested_tools, allow_rules):
     if not binary or not os.path.isfile(binary) or not os.access(binary, os.X_OK):
         error("pi_missing", "Pi coding-agent CLI not found; provide --pi-bin")
     binary = str(Path(binary).resolve())
-    runtime = binary
-    try:
-        with Path(binary).open("rb") as source:
-            first_line = source.readline(256).decode("utf-8", "replace")
-    except OSError:
-        first_line = ""
-    if first_line.startswith("#!") and re.search(r"(?:^|\s|/)node(?:\s|$)", first_line):
-        node = shutil.which("node")
-        if not node or not os.path.isfile(node) or not os.access(node, os.X_OK):
-            error("pi_incompatible", "Pi uses a Node launcher but the executing Node binary could not be resolved")
-        runtime = os.path.realpath(node)
+    runtime = launcher_runtime(binary)
     version = probe(binary, "--version")
     if not version:
         error("pi_probe", "Pi returned an empty version; could not record the executing CLI")

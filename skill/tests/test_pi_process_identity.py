@@ -10,7 +10,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import delegate_process
-import kimi_backend
+from delegate_transport import PiTransport
 
 
 PROCESS_IDENTITY = True
@@ -34,7 +34,7 @@ class PiProcessIdentity(unittest.TestCase):
                 probe = delegate_process.ps_probe(proc.pid)
                 self.assertIsNotNone(probe)
                 self.assertNotIn(token, probe["command"])
-                identity = kimi_backend.capture_identity(proc.pid, token, node)
+                identity = PiTransport().capture_child({"pi_runtime": node}, proc.pid, token)
                 self.assertTrue(identity["identity_verified"], identity)
                 self.assertEqual(identity["identity_method"], "darwin_proc")
                 self.assertEqual(delegate_process.identity_state(identity), "alive")

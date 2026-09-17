@@ -28,8 +28,10 @@ command that produces it, see [Tests](README.md#tests).
   after its argv title changes, normalizes malformed auth output, binds
   current-round effort/tool/completion evidence, requires a session header for
   evidence export, removes blocking duplicate revision probes, and documents
-  the actual project-trust and offline flag semantics.
-- Current aggregate after this update: 256 Python and 11 JavaScript tests pass
+  the actual project-trust and offline flag semantics. A follow-up resolves the
+  launcher interpreter from its shebang and tests identity through the Pi
+  transport itself.
+- Current aggregate after this update: 257 Python and 11 JavaScript tests pass
   across the portable and macOS process-identity groups.
 
 ## Unreleased — Phase 2: separate the runtime by responsibility
