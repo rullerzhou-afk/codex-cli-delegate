@@ -12,7 +12,7 @@ Read [external delegation policy](delegation-policy.md) first. Without an explic
 - Kimi: read [Kimi setup and native evidence](kimi.md). Requires existing thinking configuration and three explicitly installed managed hooks. Normal dispatch checks them without rewriting user configuration.
 - OpenCode: read [OpenCode tools and hooks](opencode.md). Adds a per-process plugin while preserving existing plugins. Default profile is read-only.
 - Pi: read [Pi and OpenRouter setup](pi.md). Uses JSON mode, an isolated native session, and the exact Union Alpha route; extensions are disabled for delegated runs.
-- Remote Windows Codex: read [remote observation](remote-codex.md) and use `scripts/remote_codex.py`. This observes an already identified remote turn; it does not dispatch a new Codex turn.
+- Remote Windows Codex: read [the dedicated reference](remote-codex.md). Use `scripts/remote_codex_task.py` for a new bounded dispatch and `scripts/remote_codex.py` to observe an already identified remote turn. STARTED, an SSH heartbeat, or `completed_claimed` is not completion evidence; require the exact native session/turn/log terminal state.
 
 The supporting references currently contain detailed Chinese operating notes; public setup is documented in the repository's English README and Chinese companion.
 

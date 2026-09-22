@@ -25,6 +25,7 @@ class RemoteContract(unittest.TestCase):
     def test_full_unicode_result_hash(self):
         text='完整正式原文 ✓\n'*500
         f={**self.frame,'status':'awaiting_review','final_text':text,'final_sha256':hashlib.sha256(text.encode()).hexdigest(),'model':'model','effort':'xhigh',
+           'sandbox':'workspace-write','approval_policy':'never',
            'cli_version':'0.153.4','source':dict(path=self.job['log'],bytes=100,sha256='a'*64)}
         s=m.apply_frame(self.d,self.job,self.state,f)
         self.assertEqual((self.d/'final.md').read_text(),text); self.assertEqual(s['cursor'],2)
@@ -34,6 +35,7 @@ class RemoteContract(unittest.TestCase):
         self.assertEqual(s['status'],'stalled')
     def test_shell_input_is_literal(self):
         self.assertEqual(m.ps_string("C:\\odd's name"),"'C:\\odd''s name'")
+        self.assertIn('StrictHostKeyChecking=yes', m.ssh_argv('windows-host', 'test'))
         for host in ('-oProxyCommand=x','host;whoami','user@host','$(cmd)'):
             with self.assertRaises(ValueError): m.ssh_argv(host,'test')
 

@@ -4,6 +4,38 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — bounded Windows Codex SSH dispatch
+
+- Added a separate, policy-bound `remote_codex_task.py` entry point and a
+  content-addressed Windows Node runner. This is a single Codex `exec` carrier,
+  not a fifth Claude/Kimi/OpenCode/Pi transport and not a generic remote shell.
+- Pinned existing SSH host aliases, cwd roots, `CODEX_HOME`, model, effort,
+  sandbox, approval policy, native Windows sandbox implementation, finite
+  timeout, prompt hash, owner, and request ID. Prompt/task values travel over
+  stdin rather than the PowerShell command string.
+- Added request dedupe, one-task-per-cwd locks, private bounded streams,
+  heartbeat/receipt state, PID plus process-start identity, conservative
+  carrier-loss reconciliation, and exact native session/turn/log verification.
+  The existing read-only observer remains the final completion authority.
+- Kept the SSH carrier alive for the whole model run after a real Windows probe
+  showed detached children die when the SSH session closes. Mac sleep/network
+  loss can therefore terminate the task and leave partial writes; this phase
+  intentionally has no detach/reconnect, queue, multi-agent, or remote stop.
+- Live Windows 11 / Codex CLI 0.155.0 validation exposed a broken elevated
+  sandbox that silently produced read-only turns. Completion now fails on
+  actual model/effort/sandbox/approval mismatch. A policy-pinned, per-invocation
+  `unelevated` fallback completed an exact file-write proof without changing
+  persistent Windows or proxy configuration.
+- Added a tri-state Windows process probe, partial-write recovery on every
+  write-capable failure, and explicit stale-lock reclaim gated by human
+  inspection plus exact request/cwd/PID/start-time proof. A controlled carrier
+  termination exercised the full wait window and exact-lock reclaim.
+- Made the independent native-log observer verify effective sandbox and
+  approval policy, reject ambiguous turns and remote terminal-state injection,
+  and validate the local exec stream identity before review.
+- Current aggregate: 270 Python and 20 JavaScript tests pass across the
+  portable and macOS process-identity groups.
+
 ## Unreleased — Pi / OpenRouter Union Alpha backend
 
 - Added `pi` as a fourth external backend through the existing transport seam.
@@ -31,8 +63,8 @@ command that produces it, see [Tests](README.md#tests).
   the actual project-trust and offline flag semantics. A follow-up resolves the
   launcher interpreter from its shebang and tests identity through the Pi
   transport itself.
-- Current aggregate after this update: 257 Python and 11 JavaScript tests pass
-  across the portable and macOS process-identity groups.
+- Historical Pi aggregate at that update: 257 Python and 11 JavaScript tests
+  passed across the portable and macOS process-identity groups.
 
 ## Unreleased — Phase 2: separate the runtime by responsibility
 

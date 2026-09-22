@@ -18,6 +18,7 @@ import uuid
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'claude-delegate' / 'remote'
 TERMINAL = {'awaiting_review', 'incomplete_evidence', 'failed', 'interrupted', 'superseded', 'observer_error', 'accepted', 'detached'}
+PS_UTF8 = "[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false); "
 
 def save(path, data):
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -38,7 +39,7 @@ def ssh_argv(host, script):
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,120}', host):
         raise ValueError('use an existing SSH host alias, without shell syntax')
     encoded = base64.b64encode(script.encode('utf-16le')).decode()
-    return ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+    return ['ssh', '-T', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10',
             '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=2',
             host, 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' + encoded]
 
@@ -52,7 +53,7 @@ def deploy(host):
     data = (HERE / 'remote_codex_agent.cjs').read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     # stdin carries code, not a shell command. Content-addressed path is verified before reuse.
-    script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " + \
+    script = PS_UTF8 + "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; " + \
         "$d=Join-Path $env:USERPROFILE '.codex/remote-delegate/runtime'; " + \
         "$null=New-Item -ItemType Directory -Force -Path $d; $p=Join-Path $d '" + digest + ".cjs'; " + \
         "$b=[Convert]::FromBase64String([Console]::In.ReadToEnd()); " + \
@@ -118,7 +119,8 @@ def apply_frame(d, job, state, frame):
     status = frame.get('status') if frame.get('kind') == 'state' else 'observer_error'
     if status not in {'unknown', 'running'} | TERMINAL:
         raise ValueError('unknown_remote_status')
-    new = {k: frame[k] for k in ('activity', 'model', 'effort', 'cli_version', 'source', 'error', 'observed_at') if k in frame}
+    new = {k: frame[k] for k in ('activity', 'model', 'effort', 'sandbox', 'approval_policy',
+                                  'cli_version', 'source', 'error', 'observed_at') if k in frame}
     if status == 'awaiting_review':
         src = new.get('source', {})
         if (src.get('path') != job['log'] or not isinstance(src.get('bytes'), int) or src['bytes'] <= 0
@@ -155,7 +157,7 @@ def worker(args):
             if state.get('source', {}).get('bytes'):
                 config['checkpoint'] = state['source']
             encoded = base64.b64encode(json.dumps(config).encode()).decode()
-            script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; & " + \
+            script = PS_UTF8 + "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; & " + \
                 ps_string(job['runtime']['node']) + ' ' + ps_string(job['runtime']['path']) + ' ' + ps_string(encoded)
             child = subprocess.Popen(ssh_argv(job['host'], script), stdin=subprocess.DEVNULL,
                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)

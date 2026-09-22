@@ -4,7 +4,7 @@
 
 A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, OpenCode, and Pi**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
 
-It also observes the completion of an exact **remote Windows Codex CLI turn** over SSH. Remote observation and local delegation are separate capabilities.
+It also dispatches and observes one bounded **remote Windows Codex CLI turn** over SSH. This policy-bound path and local multi-provider delegation are separate capabilities.
 
 ## What it does
 
@@ -17,6 +17,7 @@ It also observes the completion of an exact **remote Windows Codex CLI turn** ov
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
 - Retains local evidence and supports recovery and conservative process stopping.
 - Pauses future Claude calls at observed 90% account quota while allowing an active round to finish.
+- Dispatches one policy-allowlisted Windows `codex exec` task over a life-support SSH carrier, then verifies the exact native session, turn, log, and artifacts independently.
 
 `awaiting_review` means the execution evidence passed checks. Codex still needs to inspect the actual work before `accept`.
 
@@ -32,12 +33,14 @@ Do not start a new external job for native-worker-only requests, explicit solo w
 
 Without an explicit external route this skill does not claim routing precedence and does not start a new external job, but it still recovers and resolves jobs its tools previously started. In that no-route case, host routing may select a native worker. Once this skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [the delegation policy](skill/references/delegation-policy.md).
 
+An explicit request to dispatch from Mac Codex to a Windows Codex agent uses the separate [Remote Windows Codex](skill/references/remote-codex.md) entry point. It is one bounded `codex exec` task, not a Claude/Kimi/OpenCode/Pi backend, generic remote shell, desktop queue, or detachable service. Host, cwd, model, effort, sandbox, native Windows sandbox implementation, and timeout come from a private allowlist.
+
 ## Supported scope
 
 | Capability | Current scope |
 | --- | --- |
 | Local Claude SDK / Kimi CLI / OpenCode CLI / Pi CLI delegation | Validated on macOS; not a supported Windows local runner |
-| Remote Codex observation | macOS observer → existing Windows SSH host with Node.js and PowerShell |
+| Remote Codex dispatch and observation | One allowlisted macOS → Windows SSH task with Node.js, PowerShell, finite timeout, and exact native-log verification |
 | OpenCode profile | Reference CLI 1.18.30; capability-checked versions; `deepseek/deepseek-flash`, variant `high` |
 | Claude profile | `claude-opus-5`, effort `max`; restricted settings require CLI 2.1.248+ |
 | Kimi profile | `kimi-code/k3-256k`, effort `max`; existing thinking settings and managed hooks required |
@@ -62,7 +65,7 @@ else
 fi
 ```
 
-The **whole `skill/` folder** is required. MCP/SDK needs **Python 3.12+** and the pinned dependencies; the original CLI path supports Python 3.9+ without them. The selected CLI must already be installed and authenticated. Node.js is needed for remote observation and the JavaScript tests. This repository does not install model clients, copy login credentials, or configure providers.
+The **whole `skill/` folder** is required. MCP/SDK needs **Python 3.12+** and the pinned dependencies; the original CLI path supports Python 3.9+ without them. The selected CLI must already be installed and authenticated. Node.js is needed for remote Windows dispatch/observation and the JavaScript tests. This repository does not install model clients, copy login credentials, or configure providers.
 
 For Kimi, read [the setup reference](skill/references/kimi.md) before installing its three managed hooks from the final installed path. For Pi, read [the Pi and OpenRouter reference](skill/references/pi.md); the exact Union Alpha model must resolve before dispatch. OpenCode uses per-process plugin configuration and preserves existing user plugins; Claude uses isolated task settings and task-scoped SDK hooks. Global/project custom hooks are not automatically inherited.
 
@@ -127,13 +130,13 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **257 Python and 11 JavaScript tests pass** with fixtures. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **270 Python and 20 JavaScript tests pass** with fixtures. The portable split is 186 Python plus 20 JavaScript tests; the macOS process-identity split is 84 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the remaining runtime refactor.
 
 Module responsibilities, the provider-transport seam, and the phase roadmap (Phase 0–2 implemented; Phase 3–5 not started) are in [architecture](docs/ARCHITECTURE.md).
 
-Evidence categories and unsupported claims are separated in [validation boundaries](docs/VALIDATION.md). Real macOS provider runs, notification checks, and known limits are recorded there; they are not portable proof of other machines or later CLI versions.
+Evidence categories and unsupported claims are separated in [validation boundaries](docs/VALIDATION.md). Real macOS provider runs, the bounded Windows 11 dispatch/carrier-loss probes, notification checks, and known limits are recorded there; they do not prove a full Windows port, other machines, or later CLI versions.
 
 ## Origins and license
 

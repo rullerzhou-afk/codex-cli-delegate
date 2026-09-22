@@ -56,9 +56,10 @@ class Selection(unittest.TestCase):
         self.assertTrue(marked.get("work/skill-verification/test_transport_seam.py"))
         self.assertFalse(marked.get("work/skill-verification/test_schema_contract.py"))
 
-    def test_javascript_discovery_finds_both_files(self):
+    def test_javascript_discovery_finds_all_repository_files(self):
         names = {Path(path).name for path in run_tests.discover_javascript()}
-        self.assertEqual(names, {"test_remote_codex.cjs", "test_opencode_hook.mjs"})
+        self.assertEqual(names, {"test_remote_codex.cjs", "test_remote_codex_runner.cjs",
+                                 "test_opencode_hook.mjs"})
 
     def test_javascript_plan_reports_excluded_filenames(self):
         all_js = ["skill/tests/test_a.cjs", "skill/tests/test_b.mjs"]

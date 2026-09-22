@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegate
-description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also tracks exact remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also dispatches and tracks bounded remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
@@ -16,6 +16,13 @@ Resolve every canonical name and established alias to its backend before dispatc
 If the user explicitly names multiple distinct external routes, dispatch one matching job per backend. Give each job one self-contained responsibility; several read-only reviewers may inspect the same subject. Every job that has not released its reservation occupies its checkout regardless of tool profile, so concurrent jobs, including read-only reviews, require distinct non-overlapping worktrees or clones; the same checkout and its nested paths conflict. These are requested participants, not extra reviewers added by default.
 
 Do not start a new external job for native-worker-only requests, explicit solo work, casual explanations, tiny work, or work that is already nearly complete. Use one worker for the coupled responsibility, forward new constraints promptly, and continue the same worker and job for rework instead of creating phase-named jobs. Independent Codex acceptance stays mandatory; do not add a second external reviewer by default, and choose adversarial review only when the user requests it or risk requires it.
+
+When the user explicitly asks the Mac Codex agent to dispatch work to a Windows
+Codex agent, use the separate [Remote Windows Codex](references/remote-codex.md)
+entry point. It supports one bounded `codex exec` task only. It is not one of
+the external backends above and does not reuse the `delegate_start` lifecycle.
+The remote cwd, model, effort, sandbox, timeout, and native Windows sandbox
+implementation must be fixed by a private policy allowlist.
 
 Worktrees and tool allowlists are specific controls, not an operating-system sandbox. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it must still recover and resolve jobs its tools previously started; in that no-route case, a host routing skill may select a native worker, which this repository neither observes nor controls. Once this Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [external delegation policy](references/delegation-policy.md).
 
@@ -47,7 +54,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 
 - [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
 - [Kimi](references/kimi.md), [OpenCode](references/opencode.md), and [Pi](references/pi.md): native CLI adapters, tool selection, configuration, JSON events, and native evidence. Bash or PowerShell permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented.
-- [Remote Windows Codex](references/remote-codex.md): observe an exact existing remote session/turn, then verify its artifacts. This is separate from local delegation and uses `scripts/remote_codex.py`.
+- [Remote Windows Codex](references/remote-codex.md): policy-bound SSH dispatch, exact session/turn observation, carrier-loss boundaries, and independent acceptance. This is separate from local delegation.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 
 The local runner is validated on macOS. Runtime evidence and credentials remain local; publishing the tool does not authorize uploading task records.

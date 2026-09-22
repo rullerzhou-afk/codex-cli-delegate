@@ -38,7 +38,8 @@ root. Two distinct boundaries apply:
 | `claude_events.py`, `claude_quota.py`, `delegate_notify.py` | Hooks, quota observation, notifications/queue return |
 | `delegate_service.py`, `delegate_mcp.py` | MCP-facing application API and stdio entry point |
 | `review_evidence.py` | Independent evidence-manifest contract |
-| `remote_codex.py`, `remote_codex_agent.cjs` | Remote Windows Codex turn observation (separate capability) |
+| `remote_codex.py`, `remote_codex_agent.cjs` | Read-only observation of an exact existing Windows Codex turn |
+| `remote_codex_task.py`, `remote_codex_runner.cjs` | Policy-bound Windows Codex exec over a life-support SSH carrier (separate capability) |
 
 ## Transport seam
 
@@ -66,6 +67,35 @@ providers.
 
 Claude quota observation stays an adapter `launch_checks`/`revision_config`
 gate, and notification/queue delivery stays outside model execution.
+
+## Separate Windows remote-exec boundary
+
+`remote_codex_task.py` is not a fifth transport adapter. It starts only Codex
+`exec` on an allowlisted Windows SSH site and has its own state root, request
+dedupe, cwd lock, finite timeout, and receipt contract. Prompts and task fields
+travel through stdin; the fixed PowerShell command launches a content-addressed
+Node runner. The runner pins `CODEX_HOME`, model, effort, sandbox, approval
+policy, and native Windows sandbox implementation, then verifies the exact
+session log before claiming completion. `remote_codex.py` independently parses
+that exact session/turn before the Mac can enter review.
+
+The SSH process is a life-support carrier, not a detachable remote service. A
+Mac sleep or network loss can terminate the Windows model and leave partial
+writes. Reconciliation therefore uses the remote PID plus process start time,
+waits through the keepalive window, and retains unknown/stale locks unless
+positive evidence supports a terminal classification. This phase deliberately
+has no remote queue, resume, multi-agent, or stop operation.
+
+Probe failure is not process absence. A lock can be reclaimed only by an
+explicit command after human worktree inspection, stale-heartbeat proof,
+matching request/cwd ownership, and positive proof that the exact PID/start-
+time identity is gone. The normalized native turn context independently
+verifies the effective Codex sandbox and approval policy, but it does not
+expose which Windows sandbox implementation backed that policy.
+`windows_sandbox` is therefore a pinned per-invocation request recorded in
+policy and receipts, not an independently observed runtime fact. The private
+local `stream.ndjson` retains the full bounded Codex JSON event stream and may
+contain reasoning summaries, tool arguments, and tool output.
 
 ### Honest limitation: callback through `claude_task`
 
@@ -95,9 +125,11 @@ exists.
 | Phase 5 — port, then validate additional platforms | Planned / not started |
 
 Phases 3–5 have not run: there has been no ACP pilot, no OpenCode Server work,
-and no Linux/Windows implementation. Pi was added independently through the
-Phase 2 provider seam and does not constitute the planned ACP evaluation. The
-local runner remains validated on macOS only.
+and no Linux/Windows port of the local multi-provider runtime. Pi was added
+independently through the Phase 2 provider seam and does not constitute the
+planned ACP evaluation. The local runner remains validated on macOS only; the
+bounded Windows Codex SSH capability above is deliberately separate from that
+portability roadmap.
 
 ## Compatibility
 

@@ -7,7 +7,8 @@ const c = {session:'session-a', turn:'turn-a', cwd:'D:\\test', token:'test-token
 const r = (type, payload) => ({timestamp: new Date().toISOString(), type, payload});
 const meta = r('session_meta', {id:c.session, cwd:c.cwd, cli_version:'0.153.4'});
 const start = r('event_msg', {type:'task_started', turn_id:c.turn});
-const context = r('turn_context', {turn_id:c.turn, cwd:c.cwd, model:'test-model', effort:'xhigh'});
+const context = r('turn_context', {turn_id:c.turn, cwd:c.cwd, model:'test-model', effort:'xhigh',
+  sandbox_policy:{type:'workspace-write'}, approval_policy:'never'});
 const final = r('event_msg', {type:'item_completed', thread_id:c.session, turn_id:c.turn,
   item:{type:'AgentMessage', phase:'final_answer', content:[{type:'text', text:'完成 ✓'}]}});
 const done = r('event_msg', {type:'task_complete', turn_id:c.turn, last_agent_message:'完成 ✓'});
@@ -32,9 +33,18 @@ test('duplicate completion cannot overwrite result', () => {
   const p=parser(); p.consume(done); p.consume(r('event_msg',{...done.payload,last_agent_message:'other'}));
   assert.equal(p.final,'完成 ✓');
 });
-test('later turn supersedes unfinished target', () => {
-  const p=parser(); p.consume(r('event_msg',{type:'task_started',turn_id:'new'})); p.consume(done);
-  assert.equal(p.status,'superseded');
+test('default observer supports a target later in a session and reports superseded', () => {
+  const p=new Parser(c); p.consume(meta);
+  p.consume(r('event_msg',{type:'task_started',turn_id:'old'}));
+  p.consume(r('event_msg',{type:'task_complete',turn_id:'old',last_agent_message:'old'}));
+  p.consume(start); p.consume(context); p.consume(done);
+  assert.equal(p.status,'awaiting_review');
+  const q=parser(); q.consume(r('event_msg',{type:'task_started',turn_id:'new'}));
+  assert.equal(q.status,'superseded');
+});
+test('single-turn proof rejects a second task_started record', () => {
+  const p=new Parser({...c,single_turn:true}); [meta,start,context].forEach(x=>p.consume(x));
+  assert.throws(()=>p.consume(r('event_msg',{type:'task_started',turn_id:'new'})),/ambiguous/);
 });
 test('no reasoning or tool payload in normalized state', () => {
   const p=parser(); p.consume(r('response_item',{type:'reasoning',summary:'secret-thinking'}));

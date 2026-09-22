@@ -13,7 +13,8 @@ function textOf(content) {
 class Parser {
   constructor(config) {
     this.c = config; this.meta = false; this.active = null; this.started = false;
-    this.model = null; this.effort = null; this.final = ''; this.status = 'unknown';
+    this.model = null; this.effort = null; this.sandbox = null; this.approval = null;
+    this.startedCount = 0; this.final = ''; this.status = 'unknown';
     this.activity = null; this.terminal = false; this.version = null;
   }
   consume(record) {
@@ -28,6 +29,8 @@ class Parser {
     if (p.thread_id && p.thread_id !== this.c.session) return;
     if (record.type === 'event_msg' && p.type === 'task_started') {
       if (!p.turn_id) throw Error('missing_turn_identity');
+      this.startedCount += 1;
+      if (this.c.single_turn && this.startedCount !== 1) throw Error('ambiguous_turn_identity');
       this.active = p.turn_id;
       if (this.active === this.c.turn) { this.started = true; this.status = 'running'; }
       else if (this.started) { this.status = 'superseded'; this.terminal = true; }
@@ -38,6 +41,8 @@ class Parser {
     if (record.type === 'turn_context' && p.turn_id === this.c.turn) {
       if (norm(p.cwd) !== norm(this.c.cwd)) throw Error('turn_cwd_mismatch');
       this.model = p.model || null; this.effort = p.effort || null;
+      this.sandbox = p.sandbox_policy && p.sandbox_policy.type || null;
+      this.approval = p.approval_policy || null;
     }
     if (record.type === 'event_msg') {
       const i = p.item || {};
@@ -47,7 +52,8 @@ class Parser {
         const last = typeof p.last_agent_message === 'string' ? p.last_agent_message : '';
         if (last && this.final && last.trim() !== this.final.trim()) throw Error('final_text_mismatch');
         this.final = last || this.final;
-        this.status = this.final.trim() && this.model && this.effort ? 'awaiting_review' : 'incomplete_evidence';
+        this.status = this.final.trim() && this.model && this.effort && this.sandbox && this.approval
+          ? 'awaiting_review' : 'incomplete_evidence';
         this.terminal = true;
       } else if (['turn_aborted', 'task_failed'].includes(p.type) && p.turn_id === this.c.turn) {
         this.status = p.type === 'turn_aborted' ? 'interrupted' : 'failed'; this.terminal = true;
@@ -56,7 +62,8 @@ class Parser {
   }
   snapshot() {
     return {status: this.status, started: this.started, activity: this.activity, model: this.model,
-      effort: this.effort, cli_version: this.version, terminal: this.terminal,
+      effort: this.effort, sandbox: this.sandbox, approval_policy: this.approval,
+      cli_version: this.version, terminal: this.terminal,
       ...(this.terminal && this.final ? {final_text: this.final, final_sha256: sha(this.final)} : {})};
   }
 }

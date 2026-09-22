@@ -98,6 +98,23 @@ Worktrees, restricted settings, and tool allowlists are specific controls.
 They are not an operating-system sandbox and are not proof of one. Check the
 actual modified paths and artifacts.
 
+## Separate Windows Codex remote execution
+
+The policy-bound Windows Codex SSH carrier is a separate capability, not a
+Claude, Kimi, OpenCode, or Pi backend and not a native-worker router. It can
+satisfy only an explicit request to dispatch to Windows Codex. It uses one
+bounded `codex exec` task, an allowlisted SSH site/cwd/model/effort/sandbox/
+timeout, a finite carrier lifetime, exact request ownership, and independent
+native-log verification before acceptance.
+
+It does not provide a generic shell, desktop queue, multiple agents, remote
+stop, detached continuation, or route fallback. Carrier loss can terminate the
+Windows process and leave partial writes. A stale directory lock is never
+cleared automatically: explicit reclaim requires human worktree inspection,
+the original request identity, a stale heartbeat, and positive proof that the
+exact PID/start-time identity is gone. The requested native Windows sandbox
+implementation is policy evidence, not independent session-log evidence.
+
 ## Co-installation precedence
 
 - Without an explicit external route, this Skill does not claim routing
