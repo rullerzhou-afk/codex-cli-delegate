@@ -30,8 +30,11 @@ class PiProcessIdentity(unittest.TestCase):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True)
             try:
-                time.sleep(0.3)
+                deadline = time.monotonic() + 5
                 probe = delegate_process.ps_probe(proc.pid)
+                while probe is not None and token in probe["command"] and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                    probe = delegate_process.ps_probe(proc.pid)
                 self.assertIsNotNone(probe)
                 self.assertNotIn(token, probe["command"])
                 identity = PiTransport().capture_child({"pi_runtime": node}, proc.pid, token)
