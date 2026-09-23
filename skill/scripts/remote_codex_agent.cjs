@@ -14,6 +14,7 @@ class Parser {
   constructor(config) {
     this.c = config; this.meta = false; this.active = null; this.started = false;
     this.model = null; this.effort = null; this.sandbox = null; this.approval = null;
+    this.network = null; this.writableRoots = [];
     this.startedCount = 0; this.final = ''; this.status = 'unknown';
     this.activity = null; this.terminal = false; this.version = null;
   }
@@ -41,7 +42,10 @@ class Parser {
     if (record.type === 'turn_context' && p.turn_id === this.c.turn) {
       if (norm(p.cwd) !== norm(this.c.cwd)) throw Error('turn_cwd_mismatch');
       this.model = p.model || null; this.effort = p.effort || null;
-      this.sandbox = p.sandbox_policy && p.sandbox_policy.type || null;
+      const policy = p.sandbox_policy || {};
+      this.sandbox = policy.type || null;
+      this.network = typeof policy.network_access === 'boolean' ? policy.network_access : null;
+      this.writableRoots = Array.isArray(policy.writable_roots) ? policy.writable_roots.map(String) : [];
       this.approval = p.approval_policy || null;
     }
     if (record.type === 'event_msg') {
@@ -63,6 +67,7 @@ class Parser {
   snapshot() {
     return {status: this.status, started: this.started, activity: this.activity, model: this.model,
       effort: this.effort, sandbox: this.sandbox, approval_policy: this.approval,
+      network_access: this.network, writable_roots: this.writableRoots,
       cli_version: this.version, terminal: this.terminal,
       ...(this.terminal && this.final ? {final_text: this.final, final_sha256: sha(this.final)} : {})};
   }

@@ -30,7 +30,8 @@ entry point. Codex runs one bounded `codex exec` task per job; Kimi runs one `-p
 task per job and can continue the same native session with `revise`. It is not
 one of the external backends above, does not satisfy a request for the local
 Kimi route, and does not reuse the `delegate_start` lifecycle. The remote cwd,
-model, effort, Codex sandbox or Kimi tools, timeout, and native Windows sandbox
+model, effort, Codex sandbox (including extra writable directories) or Kimi tools,
+timeout, and native Windows sandbox
 implementation must be fixed by a private policy allowlist. Kimi has no sandbox
 on Windows.
 

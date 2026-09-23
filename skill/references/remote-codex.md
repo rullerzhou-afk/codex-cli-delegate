@@ -23,13 +23,16 @@
       "sandboxes": ["read-only", "workspace-write"],
       "windows_sandbox": "elevated",
       "max_timeout_seconds": 900,
-      "allow_non_git": false
+      "allow_non_git": false,
+      "add_dirs": ["C:\\Users\\USER\\.codex\\skills"]
     }
   }
 }
 ```
 
 `windows_sandbox` 必须明确写成 `elevated` 或 `unelevated`。优先用 `elevated`；若 `codex doctor --json` 明确显示 elevated 初始化失败，可以在确认机器适合官方较弱后备后，把该站点固定为 `unelevated`。派单器不会自动降级，也不会改写远端 `config.toml`。
+
+需要让 Codex 额外写工作目录以外的某个目录时（例如更新 Windows 上 Codex 自己的 skills），站点策略用 `add_dirs` 列出允许的根目录，派单时用 `--add-dir <目录>` 逐个请求，最多 4 个。它只放宽 `workspace-write` 沙箱，不开放网络；请求的目录必须在策略根之内，Windows runner 还会按真实路径再核一遍，挡住目录联接和符号链接。完成判定时，runner 和观察器两层都从原生日志的 `sandbox_policy` 核对：实际可写目录必须与请求的完全一致，并且没有开放网络。
 
 任务正文从文件读取，经标准输入发送；正文、目录和其他变量不进入 PowerShell 命令字符串。每个新请求使用新的 UUID；相同 request ID 与相同请求会去重，内容或策略控制变化会报冲突。
 

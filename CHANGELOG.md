@@ -4,6 +4,23 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — extra writable directories for remote Codex
+
+- A Windows Codex task can write one to four directories beyond its workspace
+  with `--add-dir`, for example to update Codex's own skills. The site policy
+  lists the allowed roots under `add_dirs`; requests must fall inside them and
+  use `workspace-write`, which stays without network. The runner re-checks
+  realpaths so a junction or symlink cannot widen the scope.
+- Both parses of the native log now report `sandbox_policy` network access and
+  writable roots. The runner receipt and the observer's second parse must each
+  show exactly the requested roots and no network, or the round stays
+  incomplete. Jobs created before this change keep working with an empty list.
+- 4 Python and 4 JavaScript fixture tests were added. Current aggregate:
+  304 Python and 34 JavaScript tests pass (portable 219 + 34,
+  process identity 85).
+- Live run: a Codex task updated the Windows machine's own copy of this Skill
+  through `--add-dir`; see [validation](docs/VALIDATION.md).
+
 ## Unreleased — Windows Kimi dispatch
 
 - The remote Windows dispatcher now runs Kimi Code as well as Codex

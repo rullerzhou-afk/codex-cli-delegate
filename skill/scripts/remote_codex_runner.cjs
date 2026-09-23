@@ -131,6 +131,13 @@ function validateConfig(config, { promptRequired }) {
     if (!['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(config.effort)) fail('bad_effort');
     if (!['read-only', 'workspace-write'].includes(config.sandbox)) fail('bad_sandbox');
     if (!['elevated', 'unelevated'].includes(config.windows_sandbox)) fail('bad_windows_sandbox');
+    for (const key of ['add_dirs', 'add_dir_roots']) {
+      const value = config[key] === undefined ? [] : config[key];
+      if (!Array.isArray(value) || value.length > 4) fail(`bad_${key}`);
+      value.forEach(dir => validateWindowsPath(dir, key));
+    }
+    // Extra writable directories only widen a workspace-write sandbox.
+    if ((config.add_dirs || []).length && config.sandbox !== 'workspace-write') fail('add_dirs_need_workspace_write');
   }
   if (!Number.isInteger(config.timeout_seconds) || config.timeout_seconds < 30 || config.timeout_seconds > 86400) fail('bad_timeout');
   if (!Number.isInteger(config.keepalive_window_seconds) || config.keepalive_window_seconds < 60
@@ -441,11 +448,14 @@ function inspectRollout(log, expected) {
       turns.add(payload.turn_id);
     }
     if (record.type === 'turn_context' && payload.turn_id) {
+      const policy = payload.sandbox_policy || {};
       const value = {
         model: payload.model || null,
         effort: payload.effort || null,
-        sandbox: payload.sandbox_policy && payload.sandbox_policy.type || null,
+        sandbox: policy.type || null,
         approval_policy: payload.approval_policy || null,
+        network_access: typeof policy.network_access === 'boolean' ? policy.network_access : null,
+        writable_roots: Array.isArray(policy.writable_roots) ? policy.writable_roots.map(String) : [],
       };
       const prior = contexts.get(payload.turn_id);
       if (prior && JSON.stringify(prior) !== JSON.stringify(value)) fail('session_context_ambiguous');
@@ -461,11 +471,18 @@ function inspectRollout(log, expected) {
   const turn = [...turns][0], context = contexts.get(turn) || {};
   const complete = completions.has(turn), finalText = completions.get(turn) || '';
   return { meta, turn, model: context.model || null, effort: context.effort || null,
-    sandbox: context.sandbox || null, approval_policy: context.approval_policy || null, complete,
+    sandbox: context.sandbox || null, approval_policy: context.approval_policy || null,
+    network_access: context.network_access === undefined ? null : context.network_access,
+    writable_roots: context.writable_roots || [], complete,
     final_text_sha256: finalText ? sha(Buffer.from(finalText)) : null };
 }
 
-function findEvidence(config, session) {
+function sameRoots(actual, expected) {
+  const key = dirs => dirs.map(dir => path.win32.resolve(String(dir)).replace(/[\\/]+$/, '').toLowerCase()).sort();
+  return JSON.stringify(key(actual || [])) === JSON.stringify(key(expected || []));
+}
+
+function findEvidence(config, session, addDirs = []) {
   const root = path.win32.join(config.codex_home, 'sessions');
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const matches = [];
@@ -478,6 +495,8 @@ function findEvidence(config, session) {
         if (evidence.effort && evidence.effort !== config.effort) fail('session_effort_mismatch');
         if (evidence.sandbox && evidence.sandbox !== config.sandbox) fail('session_sandbox_mismatch');
         if (evidence.approval_policy && evidence.approval_policy !== 'never') fail('session_approval_mismatch');
+        if (evidence.network_access === true) fail('session_network_mismatch');
+        if (evidence.turn && !sameRoots(evidence.writable_roots, addDirs)) fail('session_writable_roots_mismatch');
         if (evidence.turn && evidence.model && evidence.effort && evidence.sandbox
             && evidence.approval_policy && evidence.complete) {
           return { log: matches[0], ...evidence };
@@ -609,7 +628,18 @@ function validateReclaimEvidence(config, receipt, owner, cwd, age, processState)
   return true;
 }
 
+// Realpaths close junction and symlink escapes that a string check on the Mac cannot see.
+function codexAddDirs(config) {
+  const roots = (config.add_dir_roots || []).map(value => canonicalDirectory(value, 'add_dir_root'));
+  return (config.add_dirs || []).map(value => {
+    const dir = canonicalDirectory(value, 'add_dir');
+    if (!roots.some(root => isWithin(root, dir))) fail('add_dir_not_allowed');
+    return dir;
+  });
+}
+
 function prepareCodex(config, cwd, home, prompt) {
+  const addDirs = codexAddDirs(config);
   const invocation = resolveCodex();
   const version = codexVersion(invocation);
   const env = { ...process.env, CODEX_HOME: home };
@@ -619,16 +649,17 @@ function prepareCodex(config, cwd, home, prompt) {
     '-c', `sandbox_mode="${config.sandbox}"`, '-c', 'approval_policy="never"',
     '-c', `windows.sandbox="${config.windows_sandbox}"`,
     '--sandbox', config.sandbox, '--json', '-C', cwd,
+    ...addDirs.flatMap(dir => ['--add-dir', dir]),
     ...(config.allow_non_git ? ['--skip-git-repo-check'] : []), '-'];
   return {
     command: invocation.command, args, env, stdin: prompt, frame: 'codex', version,
-    fields: { codex_path: invocation.codex_path, codex_invocation: invocation.source },
+    fields: { codex_path: invocation.codex_path, codex_invocation: invocation.source, add_dirs: addDirs },
     observe(event, run) {
       if (event.type === 'thread.started' && UUID_RE.test(event.thread_id || '')) run.session = event.thread_id;
       if (event.type === 'turn.completed') run.turnCompleted = true;
     },
     ready: (code, run) => code === 0 && run.turnCompleted && !!run.session,
-    evidence: run => findEvidence(config, run.session),
+    evidence: run => findEvidence(config, run.session, addDirs),
     exitError: code => `codex_exit_${code === null ? 'unknown' : code}`,
   };
 }
@@ -727,7 +758,8 @@ function dispatch(config, prompt, profile = null) {
     request_digest: config.request_digest, site: config.site, host: config.host, agent: config.agent, cwd,
     ...(kimi ? { kimi_home: home, kimi_tools: config.kimi_tools, session_id: config.session_id || null,
       run_marker: config.run_marker }
-      : { codex_home: home, sandbox: config.sandbox, windows_sandbox: config.windows_sandbox }),
+      : { codex_home: home, sandbox: config.sandbox, windows_sandbox: config.windows_sandbox,
+        add_dirs: config.add_dirs || [] }),
     model: config.model, effort: config.effort, timeout_seconds: config.timeout_seconds,
     prompt_sha256: config.prompt_sha256, accepted_at: now(),
   };
@@ -933,5 +965,5 @@ module.exports = {
   atomicWrite, validateConfig, validateWindowsPath, isWithin, inspectRollout, parseProcessProbe, failureSafety,
   queryReceipt, reclaimLock, reconcileRunningReceipt, validateReclaimEvidence,
   kimiScriptFromShim, kimiThinking, validateKimiProfile, gitRoot, kimiSessionDir, kimiWireRows, inspectKimiTurn,
-  findKimiEvidence, MAX_KIMI_PROMPT,
+  findKimiEvidence, MAX_KIMI_PROMPT, sameRoots, codexAddDirs,
 };

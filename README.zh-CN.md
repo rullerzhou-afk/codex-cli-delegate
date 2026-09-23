@@ -16,7 +16,7 @@
 
 没有明确的外部路由时，本 skill 不宣称路由优先级，也不新开外部任务；但它仍必须恢复并处置自己先前启动的外部任务。仅在这种未点名外部路线的情况下，宿主路由 skill 可以选择原生 worker，本仓库既不观察也不控制该 worker。一旦本 skill 启动了外部任务，其 job／轮次／恢复／验收规则会一直生效到释放预订为止。若明确要求的外部路由不可用，应如实报告，绝不静默改用其他路由、模型或账号，也不能改用原生 worker 顶替。参见[外部委派策略](skill/references/delegation-policy.md)。
 
-明确要求给 Windows 上的 Codex 或 Kimi 派单时，使用独立的 [Windows 远程 Codex / Kimi](skill/references/remote-codex.md) 入口。每单是一个有界的 `codex exec` 或 Kimi `-p` 任务，不属于本机 Claude/Kimi/OpenCode/Pi 后端，不是通用远程 shell、桌面队列或可脱离服务。host、cwd、模型、effort、Codex 沙箱或 Kimi 工具、Windows 原生沙箱实现和超时均由私有白名单固定。Kimi 在 Windows 上没有沙箱。
+明确要求给 Windows 上的 Codex 或 Kimi 派单时，使用独立的 [Windows 远程 Codex / Kimi](skill/references/remote-codex.md) 入口。每单是一个有界的 `codex exec` 或 Kimi `-p` 任务，不属于本机 Claude/Kimi/OpenCode/Pi 后端，不是通用远程 shell、桌面队列或可脱离服务。host、cwd、模型、effort、Codex 沙箱（含额外可写目录）或 Kimi 工具、Windows 原生沙箱实现和超时均由私有白名单固定。Kimi 在 Windows 上没有沙箱。
 
 ## 安装和使用
 
@@ -56,7 +56,7 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-当前统一测试结果为 **300 项 Python 和 30 项 JavaScript 全部通过**：可移植组 215 项 Python + 30 项 JavaScript，macOS 进程身份组 85 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
+当前统一测试结果为 **304 项 Python 和 34 项 JavaScript 全部通过**：可移植组 219 项 Python + 34 项 JavaScript，macOS 进程身份组 85 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
 
 历史分项数量统一保留在[更新记录](CHANGELOG.md)，不再与当前总数混排。已有 macOS 真实 SDK、通知和提供方验证属于不同证据类别，不能代替其他机器、后续 CLI 版本或 CI 的验证。详见[公开合同](docs/CONTRACTS.md)和[验证边界](docs/VALIDATION.md)。
 

@@ -34,7 +34,7 @@ Do not start a new external job for native-worker-only requests, explicit solo w
 
 Without an explicit external route this skill does not claim routing precedence and does not start a new external job, but it still recovers and resolves jobs its tools previously started. In that no-route case, host routing may select a native worker. Once this skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [the delegation policy](skill/references/delegation-policy.md).
 
-An explicit request to dispatch to Codex or Kimi on a Windows machine uses the separate [Remote Windows Codex / Kimi](skill/references/remote-codex.md) entry point. Each job is one bounded `codex exec` or Kimi `-p` task. It is not a local Claude/Kimi/OpenCode/Pi backend, generic remote shell, desktop queue, or detachable service. Host, cwd, model, effort, Codex sandbox or Kimi tools, native Windows sandbox implementation, and timeout come from a private allowlist. Kimi has no sandbox on Windows.
+An explicit request to dispatch to Codex or Kimi on a Windows machine uses the separate [Remote Windows Codex / Kimi](skill/references/remote-codex.md) entry point. Each job is one bounded `codex exec` or Kimi `-p` task. It is not a local Claude/Kimi/OpenCode/Pi backend, generic remote shell, desktop queue, or detachable service. Host, cwd, model, effort, Codex sandbox (including any extra writable directories) or Kimi tools, native Windows sandbox implementation, and timeout come from a private allowlist. Kimi has no sandbox on Windows.
 
 ## Supported scope
 
@@ -132,7 +132,7 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **300 Python and 30 JavaScript tests pass** with fixtures. The portable split is 215 Python plus 30 JavaScript tests; the macOS process-identity split is 85 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **304 Python and 34 JavaScript tests pass** with fixtures. The portable split is 219 Python plus 34 JavaScript tests; the macOS process-identity split is 85 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the remaining runtime refactor.
 

@@ -119,8 +119,8 @@ def apply_frame(d, job, state, frame):
     status = frame.get('status') if frame.get('kind') == 'state' else 'observer_error'
     if status not in {'unknown', 'running'} | TERMINAL:
         raise ValueError('unknown_remote_status')
-    new = {k: frame[k] for k in ('activity', 'model', 'effort', 'sandbox', 'approval_policy',
-                                  'cli_version', 'source', 'error', 'observed_at') if k in frame}
+    new = {k: frame[k] for k in ('activity', 'model', 'effort', 'sandbox', 'approval_policy', 'network_access',
+                                  'writable_roots', 'cli_version', 'source', 'error', 'observed_at') if k in frame}
     if status == 'awaiting_review':
         src = new.get('source', {})
         if (src.get('path') != job['log'] or not isinstance(src.get('bytes'), int) or src['bytes'] <= 0

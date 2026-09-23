@@ -126,6 +126,10 @@ def site_base(policy, name, cwd):
                       allow_non_git=site.get('allow_non_git') is True)
 
 
+def dir_keys(dirs):
+    return sorted(ntpath.normcase(ntpath.normpath(value)).rstrip('\\/') for value in dirs or [])
+
+
 def check_timeout(site, timeout):
     maximum = int(site.get('max_timeout_seconds', 1800))
     if timeout < 30 or timeout > maximum:
@@ -139,7 +143,7 @@ def select_kimi_site(policy, name, cwd, model, effort, tools, timeout):
     return {**base, **controls, 'timeout_seconds': timeout}
 
 
-def select_site(policy, name, cwd, model, effort, sandbox, timeout):
+def select_site(policy, name, cwd, model, effort, sandbox, timeout, add_dirs=None):
     site, base = site_base(policy, name, cwd)
     host, cwd, roots = base['host'], base['cwd'], base['allowed_roots']
     codex_home = validate_windows_path(site.get('codex_home'), 'codex_home')
@@ -153,10 +157,23 @@ def select_site(policy, name, cwd, model, effort, sandbox, timeout):
         raise ValueError('sandbox is not allowlisted')
     if windows_sandbox not in {'elevated', 'unelevated'}:
         raise ValueError('windows_sandbox must be explicitly allowlisted')
+    requested = sorted({validate_windows_path(value, 'add_dir') for value in add_dirs or []})
+    add_roots = []
+    if requested:
+        # Extra writable directories widen workspace-write only, and only inside policy roots.
+        if sandbox != 'workspace-write':
+            raise ValueError('--add-dir needs the workspace-write sandbox')
+        allowed = site.get('add_dirs') or []
+        if not isinstance(allowed, list):
+            raise ValueError('policy add_dirs must be a list')
+        add_roots = [validate_windows_path(value, 'add_dir_root') for value in allowed]
+        if len(requested) > 4 or any(not any(within(root, value) for root in add_roots) for value in requested):
+            raise ValueError('add_dir is outside the site allowlist')
     check_timeout(site, timeout)
     return dict(site=name, host=host, cwd=cwd, allowed_roots=roots, codex_home=codex_home,
                 model=model, effort=effort, sandbox=sandbox, timeout_seconds=timeout,
-                windows_sandbox=windows_sandbox, allow_non_git=base['allow_non_git'])
+                windows_sandbox=windows_sandbox, allow_non_git=base['allow_non_git'],
+                add_dirs=requested, add_dir_roots=add_roots)
 
 
 def ssh_argv(host, script, *, carrier=False):
@@ -214,7 +231,7 @@ def public(directory, job):
             'completed_claimed', 'carrier_lost_pending_recheck', 'carrier_aborted_by_local_error', 'unknown'}):
         state = {**state, 'status': 'carrier_lost_pending_recheck',
                  'recheck_after': state.get('recheck_after') or time.time() + CARRIER_WINDOW}
-    agent_keys = (('sandbox', 'windows_sandbox') if job.get('agent', 'codex') == 'codex'
+    agent_keys = (('sandbox', 'windows_sandbox', 'add_dirs') if job.get('agent', 'codex') == 'codex'
                   else ('kimi_tools', 'session_id', 'parent_job', 'round'))
     return {**{key: job[key] for key in ('job', 'owner', 'request_id', 'site', 'host', 'agent', 'cwd',
                                          'model', 'effort', 'timeout_seconds')},
@@ -237,7 +254,8 @@ def request_identity(owner, request_id, site, prompt_sha):
                 cwd=site['cwd'], codex_home=site['codex_home'], model=site['model'], effort=site['effort'],
                 sandbox=site['sandbox'], timeout_seconds=site['timeout_seconds'], prompt_sha256=prompt_sha,
                 windows_sandbox=site['windows_sandbox'], allowed_roots=site['allowed_roots'],
-                allow_non_git=site['allow_non_git'],
+                allow_non_git=site['allow_non_git'], add_dirs=site.get('add_dirs', []),
+                add_dir_roots=site.get('add_dir_roots', []),
                 keepalive_window_seconds=CARRIER_WINDOW)
     digest = sha256(json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode())
     return data, digest
@@ -277,6 +295,7 @@ def dispatch(args):
     policy_path, policy = load_policy(args.policy)
     if args.agent == 'kimi':
         if args.sandbox is not None: raise ValueError('--sandbox applies only to Codex; choose Kimi tools instead')
+        if getattr(args, 'add_dir', None): raise ValueError('--add-dir applies only to Codex; Kimi has no sandbox')
         site = select_kimi_site(policy, args.site, args.cwd, args.model, args.effort, kimi_tools, args.timeout)
         marker = remote_kimi.run_marker(request_id)
         prompt = remote_kimi.prompt_bytes(marker, read_task(args.prompt_file))
@@ -286,7 +305,7 @@ def dispatch(args):
     else:
         if kimi_tools: raise ValueError('--kimi-tool applies only to Kimi')
         site = select_site(policy, args.site, args.cwd, args.model or 'gpt-6-astra', args.effort or 'xhigh',
-                           args.sandbox or 'workspace-write', args.timeout)
+                           args.sandbox or 'workspace-write', args.timeout, getattr(args, 'add_dir', None))
         prompt = args.prompt_file.read_bytes()
         if not prompt or len(prompt) > PROMPT_MAX_BYTES: raise ValueError('prompt must be 1..1048576 bytes')
         profile = None
@@ -363,6 +382,8 @@ def revise(args):
 
 def packet_for(job, action, prompt=None, inspection_sha256=None, profile=None, evidence_session=None):
     config = {key: job[key] for key in COMMON_KEYS + AGENT_KEYS[job.get('agent', 'codex')]}
+    if job.get('agent', 'codex') == 'codex':
+        config.update(add_dirs=job.get('add_dirs', []), add_dir_roots=job.get('add_dir_roots', []))
     config.update(protocol=1, action=action)
     if inspection_sha256 is not None: config['inspection_sha256'] = inspection_sha256
     if evidence_session is not None: config['evidence_session'] = evidence_session
@@ -425,6 +446,10 @@ def validate_completion_receipt(job, receipt):
                 'approval_policy': 'never'}
     if any(receipt.get(key) != value for key, value in expected.items()):
         raise ValueError('dispatch_evidence_mismatch')
+    wanted = dir_keys(job.get('add_dirs'))
+    if (receipt.get('network_access') is True or dir_keys(receipt.get('add_dirs')) != wanted
+            or dir_keys(receipt.get('writable_roots')) != wanted):
+        raise ValueError('dispatch_sandbox_scope_mismatch')
 
 
 def validate_local_stream(directory, receipt):
@@ -528,7 +553,9 @@ def verify_completion(directory, job, state):
                 'error': 'observer_did_not_verify_completion', 'remote_receipt': receipt}
     if (verified.get('model') != job['model'] or verified.get('effort') != job['effort']
             or verified.get('sandbox') != job['sandbox'] or verified.get('approval_policy') != 'never'
-            or verified.get('final_sha256') != receipt['final_text_sha256']):
+            or verified.get('final_sha256') != receipt['final_text_sha256']
+            or verified.get('network_access') is True
+            or dir_keys(verified.get('writable_roots')) != dir_keys(job.get('add_dirs'))):
         return {**state, 'status': 'incomplete_evidence', 'error': 'observer_evidence_mismatch',
                 'remote_receipt': receipt}
     return {**state, **verified, 'remote_receipt': receipt}
@@ -705,6 +732,7 @@ def main():
     start.add_argument('--model'); start.add_argument('--effort')
     start.add_argument('--sandbox'); start.add_argument('--timeout', type=int, default=900)
     start.add_argument('--kimi-tool', action='append', dest='kimi_tool')
+    start.add_argument('--add-dir', action='append', dest='add_dir')
     again = sub.add_parser('revise')
     again.add_argument('job'); again.add_argument('--request-id', required=True)
     again.add_argument('--prompt-file', type=Path, required=True); again.add_argument('--timeout', type=int)
