@@ -157,20 +157,28 @@ def baseline(job):
     return [dict(path=str(path), size=size, sha256=digest_prefix(path, size))], 'ok'
 
 
+def agent_profile(tools):
+    """Per-job agent definition; the Windows dispatcher sends this same text."""
+    return ('---\nname: codex-delegated-kimi\ndescription: Authorized scoped delegated task\n'
+            'tools: ' + json.dumps(tools) + '\nsubagents: []\n---\n'
+            '${base_prompt}\nFollow the supplied task scope. Do not use git push, gh, deployment, '
+            'proxy changes, or external messages unless the task explicitly authorizes them.\n')
+
+
+def marked_prompt(token, text):
+    # Kimi has no --name or stdin prompt option. The unique marker also anchors
+    # native turn identity and keeps ps identity proof independent of the PID.
+    return '[delegation-run: %s]\n%s' % (token, text)
+
+
 def argv(job, record, resume, prompt_file, directory):
     from claude_task import atomic_write_bytes
     directory = Path(directory)
     empty_skills = directory / 'empty-skills'
     empty_skills.mkdir(exist_ok=True, mode=0o700)
     profile = directory / 'agent.md'
-    profile_text = ('---\nname: codex-delegated-kimi\ndescription: Authorized scoped delegated task\n'
-                    'tools: ' + json.dumps(job['kimi_tools']) + '\nsubagents: []\n---\n'
-                    '${base_prompt}\nFollow the supplied task scope. Do not use git push, gh, deployment, '
-                    'proxy changes, or external messages unless the task explicitly authorizes them.\n')
-    atomic_write_bytes(str(profile), profile_text.encode())
-    # Kimi has no --name or stdin prompt option. The unique marker also anchors
-    # native turn identity and keeps ps identity proof independent of the PID.
-    prompt = '[delegation-run: %s]\n%s' % (record['run_token'], Path(prompt_file).read_text())
+    atomic_write_bytes(str(profile), agent_profile(job['kimi_tools']).encode())
+    prompt = marked_prompt(record['run_token'], Path(prompt_file).read_text())
     args = [job['kimi_bin'], '-m', MODEL, '--output-format', 'stream-json',
             '--skills-dir', str(empty_skills), '-p', prompt]
     if resume:
@@ -322,17 +330,61 @@ class KimiMonitor(Monitor):
         return shot
 
 
+def stream_summary(stream):
+    """Resume hints, CLI version and final text from stream-json rows."""
+    hints = [r.get('session_id') for r in stream if r.get('type') == 'session.resume_hint']
+    version = next((r.get('version') for r in stream if r.get('type') == 'system.version'), None)
+    texts = [r['content'] for r in stream if r.get('role') == 'assistant' and isinstance(r.get('content'), str)]
+    return hints, version, texts[-1] if texts else ''
+
+
+def check_turn(native, whole, state, token, tools, report):
+    """Native checks shared by the local and Windows Kimi adapters.
+
+    native holds the wire rows after any revision baseline, whole every row.
+    Returns (reasons, loop llm.request rows); raises without one run marker.
+    """
+    reasons = []
+    starts = [i for i, r in enumerate(native) if is_prompt(r, token)]
+    if len(starts) != 1:
+        raise ValueError('run prompt missing or duplicate')
+    active = [r for r in native[starts[0]:] if r.get('agentId') == 'main']
+    if sum(r.get('type') == 'turn.prompt' for r in active) != 1:
+        reasons.append('foreign_turn_after_prompt')
+    requests = [r for r in active if r.get('type') == 'llm.request' and r.get('kind') == 'loop']
+    if not requests or any(r.get('modelAlias') != MODEL or r.get('model') != RAW_MODEL for r in requests):
+        reasons.append('model_unverified')
+    if not requests or any(r.get('thinkingEffort') != EFFORT for r in requests):
+        reasons.append('effort_unverified')
+    endings = [r for r in active if r.get('type') == 'turn.ended']
+    if len(endings) != 1 or endings[0].get('reason') != 'completed' or state.get('lastTurnReason') != 'completed':
+        reasons.append('native_completion_missing')
+    bindings = [r for r in whole if r.get('type') == 'profile.bind' and r.get('agentId') == 'main']
+    if not bindings or sorted(bindings[-1].get('activeToolNames', [])) != sorted(tools):
+        reasons.append('tool_profile_mismatch')
+    events = [r.get('event') or {} for r in active if r.get('type') == 'context.append_loop_event']
+    steps = [e for e in events if e.get('type') == 'step.end']
+    if not steps or steps[-1].get('finishReason') != 'end_turn':
+        reasons.append('end_turn_missing')
+    if not report:
+        reasons.append('final_report_missing')
+    elif steps:
+        final_step = steps[-1].get('uuid')
+        native_text = ''.join((e.get('part') or {}).get('text', '') for e in events
+                              if e.get('type') == 'content.part' and e.get('stepUuid') == final_step
+                              and (e.get('part') or {}).get('type') == 'text')
+        if native_text != report:
+            reasons.append('final_report_mismatch')
+    return reasons, requests
+
+
 def verify(job, record, stdout_path, exit_code):
     from claude_task import clip
     reasons, models, efforts, requests = [], [], [], []
     session_ok = False
     sid, directory, report, version = None, None, '', None
     try:
-        stream = list(rows(stdout_path))
-        hints = [r.get('session_id') for r in stream if r.get('type') == 'session.resume_hint']
-        version = next((r.get('version') for r in stream if r.get('type') == 'system.version'), None)
-        texts = [r['content'] for r in stream if r.get('role') == 'assistant' and isinstance(r.get('content'), str)]
-        report = texts[-1] if texts else ''
+        hints, version, report = stream_summary(list(rows(stdout_path)))
         directory = discover(job, record)
         if directory is None:
             raise ValueError('native session missing')
@@ -353,38 +405,11 @@ def verify(job, record, stdout_path, exit_code):
                 raise ValueError('native baseline changed')
             offset = b['size']
         native = list(rows(wire_path(directory), offset))
-        starts = [i for i, r in enumerate(native) if is_prompt(r, record['run_token'])]
-        if len(starts) != 1:
-            raise ValueError('run prompt missing or duplicate')
-        active = [r for r in native[starts[0]:] if r.get('agentId') == 'main']
-        if sum(r.get('type') == 'turn.prompt' for r in active) != 1:
-            reasons.append('foreign_turn_after_prompt')
-        requests = [r for r in active if r.get('type') == 'llm.request' and r.get('kind') == 'loop']
+        found, requests = check_turn(native, list(rows(wire_path(directory))), state, record['run_token'],
+                                     job['kimi_tools'], report)
+        reasons += found
         models = [r.get('model') for r in requests]
         efforts = [r.get('thinkingEffort') for r in requests]
-        if not requests or any(r.get('modelAlias') != MODEL or r.get('model') != RAW_MODEL for r in requests):
-            reasons.append('model_unverified')
-        if not efforts or any(e != EFFORT for e in efforts):
-            reasons.append('effort_unverified')
-        endings = [r for r in active if r.get('type') == 'turn.ended']
-        if len(endings) != 1 or endings[0].get('reason') != 'completed' or state.get('lastTurnReason') != 'completed':
-            reasons.append('native_completion_missing')
-        bindings = [r for r in rows(wire_path(directory)) if r.get('type') == 'profile.bind' and r.get('agentId') == 'main']
-        if not bindings or sorted(bindings[-1].get('activeToolNames', [])) != sorted(job['kimi_tools']):
-            reasons.append('tool_profile_mismatch')
-        events = [r.get('event') or {} for r in active if r.get('type') == 'context.append_loop_event']
-        steps = [e for e in events if e.get('type') == 'step.end']
-        if not steps or steps[-1].get('finishReason') != 'end_turn':
-            reasons.append('end_turn_missing')
-        if not report:
-            reasons.append('final_report_missing')
-        elif steps:
-            final_step = steps[-1].get('uuid')
-            native_text = ''.join((e.get('part') or {}).get('text', '') for e in events
-                                  if e.get('type') == 'content.part' and e.get('stepUuid') == final_step
-                                  and (e.get('part') or {}).get('type') == 'text')
-            if native_text != report:
-                reasons.append('final_report_mismatch')
     except (OSError, ValueError, TypeError, KeyError) as exc:
         reasons.append('native_evidence_invalid:' + str(exc)[:160])
     if exit_code != 0:

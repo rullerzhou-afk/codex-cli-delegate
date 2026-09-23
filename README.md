@@ -4,7 +4,7 @@
 
 A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, OpenCode, Pi, and a separate Codex session**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
 
-It also dispatches and observes one bounded **remote Windows Codex CLI turn** over SSH. This policy-bound path and local multi-provider delegation are separate capabilities.
+It also dispatches bounded **remote Windows Codex and Kimi turns** over SSH, where Kimi can continue the same session, and observes existing Windows Codex turns. This policy-bound path and local multi-provider delegation are separate capabilities.
 
 ## What it does
 
@@ -18,7 +18,7 @@ It also dispatches and observes one bounded **remote Windows Codex CLI turn** ov
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
 - Retains local evidence and supports recovery and conservative process stopping.
 - Pauses future Claude calls at observed 90% account quota while allowing an active round to finish.
-- Dispatches one policy-allowlisted Windows `codex exec` task over a life-support SSH carrier, then verifies the exact native session, turn, log, and artifacts independently.
+- Dispatches one policy-allowlisted Windows `codex exec` or Kimi `-p` task over a life-support SSH carrier, then verifies the exact native session, turn, log, and artifacts independently. A Windows Kimi job can continue the same native session with `revise`.
 
 `awaiting_review` means the execution evidence passed checks. Codex still needs to inspect the actual work before `accept`.
 
@@ -34,14 +34,14 @@ Do not start a new external job for native-worker-only requests, explicit solo w
 
 Without an explicit external route this skill does not claim routing precedence and does not start a new external job, but it still recovers and resolves jobs its tools previously started. In that no-route case, host routing may select a native worker. Once this skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [the delegation policy](skill/references/delegation-policy.md).
 
-An explicit request to dispatch from Mac Codex to a Windows Codex agent uses the separate [Remote Windows Codex](skill/references/remote-codex.md) entry point. It is one bounded `codex exec` task, not a Claude/Kimi/OpenCode/Pi backend, generic remote shell, desktop queue, or detachable service. Host, cwd, model, effort, sandbox, native Windows sandbox implementation, and timeout come from a private allowlist.
+An explicit request to dispatch to Codex or Kimi on a Windows machine uses the separate [Remote Windows Codex / Kimi](skill/references/remote-codex.md) entry point. Each job is one bounded `codex exec` or Kimi `-p` task. It is not a local Claude/Kimi/OpenCode/Pi backend, generic remote shell, desktop queue, or detachable service. Host, cwd, model, effort, Codex sandbox or Kimi tools, native Windows sandbox implementation, and timeout come from a private allowlist. Kimi has no sandbox on Windows.
 
 ## Supported scope
 
 | Capability | Current scope |
 | --- | --- |
 | Local Claude SDK / Kimi CLI / OpenCode CLI / Pi CLI / Codex CLI delegation | Validated on macOS; not a supported Windows local runner |
-| Remote Codex dispatch and observation | One allowlisted macOS → Windows SSH task with Node.js, PowerShell, finite timeout, and exact native-log verification |
+| Remote Codex / Kimi dispatch and Codex observation | One allowlisted macOS → Windows SSH task per checkout at a time, with Node.js, PowerShell, a finite timeout, and exact native-record verification; Kimi can revise the same session |
 | OpenCode profile | Reference CLI 1.18.30; capability-checked versions; `deepseek/deepseek-flash`, variant `high` |
 | Claude profile | `claude-opus-5-5`, effort `max`; restricted settings require CLI 2.1.248+, and the CLI must know the model (2.1.280 is the first version observed with it) |
 | Kimi profile | `kimi-code/k3-256k`, effort `max`; existing thinking settings and managed hooks required |
@@ -132,7 +132,7 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **289 Python and 20 JavaScript tests pass** with fixtures. The portable split is 204 Python plus 20 JavaScript tests; the macOS process-identity split is 85 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **300 Python and 30 JavaScript tests pass** with fixtures. The portable split is 215 Python plus 30 JavaScript tests; the macOS process-identity split is 85 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the remaining runtime refactor.
 

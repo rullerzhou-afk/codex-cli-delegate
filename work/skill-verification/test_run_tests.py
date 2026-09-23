@@ -59,7 +59,7 @@ class Selection(unittest.TestCase):
     def test_javascript_discovery_finds_all_repository_files(self):
         names = {Path(path).name for path in run_tests.discover_javascript()}
         self.assertEqual(names, {"test_remote_codex.cjs", "test_remote_codex_runner.cjs",
-                                 "test_opencode_hook.mjs"})
+                                 "test_remote_kimi_runner.cjs", "test_opencode_hook.mjs"})
 
     def test_javascript_plan_reports_excluded_filenames(self):
         all_js = ["skill/tests/test_a.cjs", "skill/tests/test_b.mjs"]

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch one bounded Codex exec task to Windows over a life-support SSH carrier."""
+"""Dispatch one bounded Codex or Kimi task to Windows over a life-support SSH carrier."""
 import argparse
 import base64
 import fcntl
@@ -17,7 +17,9 @@ import sys
 import time
 import uuid
 
+import kimi_backend
 import remote_codex as observer
+import remote_kimi
 
 HERE = Path(__file__).resolve().parent
 ROOT = Path(os.environ.get('CODEX_HOME', str(Path.home() / '.codex'))) / 'claude-delegate' / 'remote' / 'tasks'
@@ -36,6 +38,15 @@ REMOTE_RECEIPT_STATUSES = {'accepted', 'starting', 'running', 'completed_claimed
                            'timed_out', 'cwd_busy', 'killed_by_carrier_loss'}
 UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$', re.I)
 HOST_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$')
+COMMON_KEYS = ('owner', 'request_id', 'request_digest', 'site', 'host', 'agent', 'cwd', 'model', 'effort',
+               'timeout_seconds', 'prompt_sha256', 'allowed_roots', 'allow_non_git', 'token',
+               'keepalive_window_seconds')
+AGENT_KEYS = {'codex': ('codex_home', 'sandbox', 'windows_sandbox'),
+              'kimi': ('kimi_home', 'kimi_tools', 'run_marker', 'kimi_profile_sha256', 'session_id',
+                       'baseline_bytes', 'baseline_sha256')}
+KIMI_RECEIPT_KEYS = ('session', 'session_dir', 'wire_bytes', 'wire_sha256', 'state_sha256',
+                     'final_text_sha256', 'cwd', 'model', 'effort', 'kimi_tools', 'cli_version', 'kimi_path',
+                     'process_pid', 'process_start_time')
 
 
 def save(path, data):
@@ -97,7 +108,7 @@ def load_policy(path):
     return path, data
 
 
-def select_site(policy, name, cwd, model, effort, sandbox, timeout):
+def site_base(policy, name, cwd):
     site = policy['sites'].get(name)
     if not isinstance(site, dict):
         raise ValueError('site is not allowlisted')
@@ -111,6 +122,26 @@ def select_site(policy, name, cwd, model, effort, sandbox, timeout):
     cwd = validate_windows_path(cwd, 'cwd')
     if not any(within(root, cwd) for root in roots):
         raise ValueError('cwd is outside the site allowlist')
+    return site, dict(site=name, host=host, cwd=cwd, allowed_roots=roots,
+                      allow_non_git=site.get('allow_non_git') is True)
+
+
+def check_timeout(site, timeout):
+    maximum = int(site.get('max_timeout_seconds', 1800))
+    if timeout < 30 or timeout > maximum:
+        raise ValueError('timeout is outside the site allowlist')
+
+
+def select_kimi_site(policy, name, cwd, model, effort, tools, timeout):
+    site, base = site_base(policy, name, cwd)
+    controls = remote_kimi.select(site, model, effort, tools, validate_windows_path)
+    check_timeout(site, timeout)
+    return {**base, **controls, 'timeout_seconds': timeout}
+
+
+def select_site(policy, name, cwd, model, effort, sandbox, timeout):
+    site, base = site_base(policy, name, cwd)
+    host, cwd, roots = base['host'], base['cwd'], base['allowed_roots']
     codex_home = validate_windows_path(site.get('codex_home'), 'codex_home')
     allowed_models = site.get('models', [])
     allowed_efforts = site.get('efforts', [])
@@ -122,12 +153,10 @@ def select_site(policy, name, cwd, model, effort, sandbox, timeout):
         raise ValueError('sandbox is not allowlisted')
     if windows_sandbox not in {'elevated', 'unelevated'}:
         raise ValueError('windows_sandbox must be explicitly allowlisted')
-    maximum = int(site.get('max_timeout_seconds', 1800))
-    if timeout < 30 or timeout > maximum:
-        raise ValueError('timeout is outside the site allowlist')
+    check_timeout(site, timeout)
     return dict(site=name, host=host, cwd=cwd, allowed_roots=roots, codex_home=codex_home,
                 model=model, effort=effort, sandbox=sandbox, timeout_seconds=timeout,
-                windows_sandbox=windows_sandbox, allow_non_git=site.get('allow_non_git') is True)
+                windows_sandbox=windows_sandbox, allow_non_git=base['allow_non_git'])
 
 
 def ssh_argv(host, script, *, carrier=False):
@@ -185,8 +214,11 @@ def public(directory, job):
             'completed_claimed', 'carrier_lost_pending_recheck', 'carrier_aborted_by_local_error', 'unknown'}):
         state = {**state, 'status': 'carrier_lost_pending_recheck',
                  'recheck_after': state.get('recheck_after') or time.time() + CARRIER_WINDOW}
+    agent_keys = (('sandbox', 'windows_sandbox') if job.get('agent', 'codex') == 'codex'
+                  else ('kimi_tools', 'session_id', 'parent_job', 'round'))
     return {**{key: job[key] for key in ('job', 'owner', 'request_id', 'site', 'host', 'agent', 'cwd',
-                                         'model', 'effort', 'sandbox', 'windows_sandbox', 'timeout_seconds')},
+                                         'model', 'effort', 'timeout_seconds')},
+            **{key: job.get(key) for key in agent_keys},
             **state, 'carrier_active': active,
             'result_file': str(directory / 'final.md') if (directory / 'final.md').exists() else None}
 
@@ -211,6 +243,25 @@ def request_identity(owner, request_id, site, prompt_sha):
     return data, digest
 
 
+def kimi_request_identity(owner, request_id, site, prompt_sha, marker, profile_sha, lineage=None):
+    data = dict(owner=owner, request_id=request_id, site=site['site'], host=site['host'], agent='kimi',
+                cwd=site['cwd'], kimi_home=site['kimi_home'], model=site['model'], effort=site['effort'],
+                kimi_tools=site['kimi_tools'], timeout_seconds=site['timeout_seconds'], prompt_sha256=prompt_sha,
+                allowed_roots=site['allowed_roots'], allow_non_git=site['allow_non_git'],
+                keepalive_window_seconds=CARRIER_WINDOW, run_marker=marker, kimi_profile_sha256=profile_sha,
+                session_id=None, baseline_bytes=None, baseline_sha256=None, parent_job=None, round=0)
+    data.update(lineage or {})
+    digest = sha256(json.dumps(data, ensure_ascii=False, separators=(',', ':')).encode())
+    return data, digest
+
+
+def read_task(path):
+    text = path.read_bytes().decode('utf8')
+    if not text.strip():
+        raise ValueError('task file is empty')
+    return text
+
+
 def start_worker(args, directory, job):
     with open(directory / 'worker.log', 'ab') as log:
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--state-dir', str(args.state_dir),
@@ -221,31 +272,50 @@ def start_worker(args, directory, job):
 def dispatch(args):
     owner = validate_uuid(args.owner, 'owner')
     request_id = validate_uuid(args.request_id, 'request ID')
-    if args.agent != 'codex': raise ValueError('unsupported_remote_agent')
+    if args.agent not in ('codex', 'kimi'): raise ValueError('unsupported_remote_agent')
+    kimi_tools = getattr(args, 'kimi_tool', None)
     policy_path, policy = load_policy(args.policy)
-    site = select_site(policy, args.site, args.cwd, args.model, args.effort, args.sandbox, args.timeout)
-    prompt = args.prompt_file.read_bytes()
-    if not prompt or len(prompt) > PROMPT_MAX_BYTES: raise ValueError('prompt must be 1..1048576 bytes')
-    prompt_sha = sha256(prompt)
-    identity, request_digest = request_identity(owner, request_id, site, prompt_sha)
+    if args.agent == 'kimi':
+        if args.sandbox is not None: raise ValueError('--sandbox applies only to Codex; choose Kimi tools instead')
+        site = select_kimi_site(policy, args.site, args.cwd, args.model, args.effort, kimi_tools, args.timeout)
+        marker = remote_kimi.run_marker(request_id)
+        prompt = remote_kimi.prompt_bytes(marker, read_task(args.prompt_file))
+        profile = kimi_backend.agent_profile(site['kimi_tools']).encode()
+        identity, request_digest = kimi_request_identity(owner, request_id, site, sha256(prompt), marker,
+                                                         sha256(profile))
+    else:
+        if kimi_tools: raise ValueError('--kimi-tool applies only to Kimi')
+        site = select_site(policy, args.site, args.cwd, args.model or 'gpt-6-astra', args.effort or 'xhigh',
+                           args.sandbox or 'workspace-write', args.timeout)
+        prompt = args.prompt_file.read_bytes()
+        if not prompt or len(prompt) > PROMPT_MAX_BYTES: raise ValueError('prompt must be 1..1048576 bytes')
+        profile = None
+        identity, request_digest = request_identity(owner, request_id, site, sha256(prompt))
+    create_and_launch(args, identity, request_digest, prompt, profile, policy_path)
+
+
+def create_and_launch(args, identity, request_digest, prompt, profile, policy_path, before_create=None):
     args.state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     with open(args.state_dir / 'registry.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         for existing in args.state_dir.glob('*/job.json'):
             candidate = read(existing)
-            if candidate.get('request_id') != request_id: continue
+            if candidate.get('request_id') != identity['request_id']: continue
             if candidate.get('request_digest') != request_digest: raise ValueError('request_conflict')
             print(json.dumps(public(existing.parent, candidate), ensure_ascii=False)); return
+        if before_create: before_create()
         job_id = str(uuid.uuid4()); directory = args.state_dir / job_id
         directory.mkdir(mode=0o700)
         (directory / 'prompt.bin').write_bytes(prompt); os.chmod(directory / 'prompt.bin', 0o600)
+        if profile is not None:
+            (directory / 'kimi-agent.md').write_bytes(profile); os.chmod(directory / 'kimi-agent.md', 0o600)
         job = dict(job=job_id, **identity, request_digest=request_digest, token=secrets.token_hex(32),
                    policy=str(policy_path), policy_sha256=sha256(policy_path.read_bytes()),
                    created_at=time.time())
         save(directory / 'job.json', job)
         save(directory / 'state.json', dict(status='preparing', cursor=0, last_heartbeat=None))
     try:
-        packet_for(job, 'dispatch', prompt)
+        packet_for(job, 'dispatch', prompt, profile=profile)
         runtime = deploy_runner(job['host'])
         job = {**job, 'runtime': runtime}; save(directory / 'job.json', job)
         start_worker(args, directory, job)
@@ -256,14 +326,49 @@ def dispatch(args):
     print(json.dumps(public(directory, job), ensure_ascii=False))
 
 
-def packet_for(job, action, prompt=None, inspection_sha256=None):
-    config = {key: job[key] for key in ('owner', 'request_id', 'request_digest', 'site', 'host', 'agent',
-             'cwd', 'codex_home', 'model', 'effort', 'sandbox', 'timeout_seconds', 'prompt_sha256',
-             'windows_sandbox', 'allowed_roots', 'allow_non_git', 'token', 'keepalive_window_seconds')}
+def revise(args):
+    """Continue a verified Kimi job's native session as a new linked job."""
+    directory, parent = owned(args)
+    request_id = validate_uuid(args.request_id, 'request ID')
+    if parent.get('agent') != 'kimi':
+        raise ValueError('only Kimi jobs continue their session; dispatch a new Codex task instead')
+    verified = read(directory / 'state.json').get('kimi_verified') or {}
+    if not (remote_kimi.SESSION_RE.fullmatch(verified.get('session') or '')
+            and isinstance(verified.get('wire_bytes'), int)
+            and re.fullmatch(r'[0-9a-f]{64}', verified.get('wire_sha256') or '')):
+        raise ValueError('the job has no verified native Kimi session to continue')
+    policy_path, policy = load_policy(args.policy)
+    timeout = parent['timeout_seconds'] if args.timeout is None else args.timeout
+    site = select_kimi_site(policy, parent['site'], parent['cwd'], parent['model'], parent['effort'],
+                            parent['kimi_tools'], timeout)
+    if site['kimi_home'] != parent['kimi_home'] or site['host'] != parent['host']:
+        raise ValueError('policy no longer points at the Kimi home or host of this session')
+    marker = remote_kimi.run_marker(request_id)
+    prompt = remote_kimi.prompt_bytes(marker, read_task(args.prompt_file))
+    lineage = dict(session_id=verified['session'], baseline_bytes=verified['wire_bytes'],
+                   baseline_sha256=verified['wire_sha256'], parent_job=parent['job'],
+                   round=parent.get('round', 0) + 1)
+    identity, request_digest = kimi_request_identity(parent['owner'], request_id, site, sha256(prompt),
+                                                     marker, None, lineage)
+
+    def supersede_parent():
+        state = read(directory / 'state.json')
+        if state.get('status') not in ('awaiting_review', 'accepted'):
+            raise ValueError('revise needs the latest verified round (awaiting_review or accepted)')
+        if state['status'] == 'awaiting_review':
+            save(directory / 'state.json', {**state, 'status': 'superseded', 'superseded_by': request_id,
+                                            'cursor': state['cursor'] + 1})
+    create_and_launch(args, identity, request_digest, prompt, None, policy_path, before_create=supersede_parent)
+
+
+def packet_for(job, action, prompt=None, inspection_sha256=None, profile=None, evidence_session=None):
+    config = {key: job[key] for key in COMMON_KEYS + AGENT_KEYS[job.get('agent', 'codex')]}
     config.update(protocol=1, action=action)
     if inspection_sha256 is not None: config['inspection_sha256'] = inspection_sha256
+    if evidence_session is not None: config['evidence_session'] = evidence_session
     outer = {'config': config}
     if prompt is not None: outer['prompt_b64'] = base64.b64encode(prompt).decode()
+    if profile is not None: outer['kimi_profile_b64'] = base64.b64encode(profile).decode()
     packet = base64.b64encode(json.dumps(outer, ensure_ascii=False, separators=(',', ':')).encode())
     if len(packet) > PACKET_MAX_BYTES: raise ValueError('packet_size_limit')
     return packet
@@ -273,7 +378,8 @@ def apply_frame(directory, job, state, frame, stream):
     if frame.get('protocol') != 1 or frame.get('token') != job['token'] or frame.get('request_id') != job['request_id']:
         raise ValueError('frame_identity_mismatch')
     kind = frame.get('kind')
-    if kind == 'codex':
+    if kind in ('codex', 'kimi'):
+        if kind != job.get('agent', 'codex'): raise ValueError('frame_agent_mismatch')
         line = base64.b64decode(frame.get('line_b64', ''), validate=True)
         if len(line) > FRAME_MAX_BYTES: raise ValueError('stream_line_limit')
         if stream.tell() + len(line) + 1 > STREAM_MAX_BYTES: raise ValueError('stream_size_limit')
@@ -338,7 +444,66 @@ def validate_local_stream(directory, receipt):
         raise ValueError('local_stream_identity_mismatch')
 
 
+def save_private(path, data):
+    temp = path.with_name(path.name + '.' + secrets.token_hex(5))
+    with open(temp, 'xb') as handle:
+        os.chmod(temp, 0o600)
+        handle.write(data); handle.flush(); os.fsync(handle.fileno())
+    os.replace(temp, path)
+
+
+def fetch_kimi_evidence(job, session):
+    runtime = job.get('runtime')
+    if not isinstance(runtime, dict) or not runtime.get('node') or not runtime.get('path'):
+        raise ValueError('remote runtime is unavailable')
+    script = PS_UTF8 + "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; & " + \
+        ps_string(runtime['node']) + ' ' + ps_string(runtime['path'])
+    output = remote(job['host'], script, packet_for(job, 'evidence', evidence_session=session), timeout=300)
+    frames = []
+    for line in output.splitlines():
+        if not line.strip().startswith('{'): continue
+        frame = json.loads(line)
+        if frame.get('protocol') != 1 or frame.get('token') != job['token'] or frame.get('request_id') != job['request_id']:
+            raise ValueError('frame_identity_mismatch')
+        frames.append(frame)
+    return remote_kimi.assemble(frames)
+
+
+def verify_kimi_completion(directory, job, state):
+    receipt = state.get('remote_receipt') or {}
+    if any(receipt.get(key) in (None, '', []) for key in KIMI_RECEIPT_KEYS):
+        return {**state, 'status': 'incomplete_evidence', 'error': 'missing_dispatch_identity'}
+    expected = {'cwd': job['cwd'], 'model': job['model'], 'effort': job['effort'], 'kimi_tools': job['kimi_tools']}
+    if (any(receipt.get(key) != value for key, value in expected.items())
+            or (job.get('session_id') and receipt['session'] != job['session_id'])):
+        return {**state, 'status': 'incomplete_evidence', 'error': 'dispatch_evidence_mismatch'}
+    try:
+        version, report = remote_kimi.check_stream(directory / 'stream.ndjson', receipt['session'])
+        if sha256(report.encode('utf8')) != receipt['final_text_sha256']: raise ValueError('final_text_mismatch')
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        return {**state, 'status': 'incomplete_evidence', 'error': str(error)}
+    evidence = fetch_kimi_evidence(job, receipt['session'])
+    # Private raw records, like stream.ndjson: never publish them as results.
+    save_private(directory / 'kimi-state.json', evidence['state'])
+    save_private(directory / 'kimi-wire.jsonl', evidence['wire'])
+    try:
+        reasons, requests, wire = remote_kimi.verify(job, receipt, report, evidence)
+    except (ValueError, KeyError, TypeError) as error:
+        return {**state, 'status': 'incomplete_evidence', 'error': 'native_evidence_invalid:' + str(error)[:160]}
+    if reasons:
+        return {**state, 'status': 'incomplete_evidence', 'error': 'native_evidence_mismatch', 'reasons': reasons}
+    temp = directory / 'final.pending'; temp.write_text(report, encoding='utf8'); os.chmod(temp, 0o600)
+    os.replace(temp, directory / 'final.md')
+    return {**state, 'status': 'awaiting_review', 'final_sha256': sha256(report.encode('utf8')),
+            'cli_version': version or receipt['cli_version'], 'model': job['model'], 'effort': job['effort'],
+            'kimi_tools': job['kimi_tools'], 'remote_receipt': receipt,
+            'kimi_verified': dict(session=receipt['session'], wire_bytes=len(wire), wire_sha256=sha256(wire),
+                                  llm_requests=len(requests))}
+
+
 def verify_completion(directory, job, state):
+    if job.get('agent') == 'kimi':
+        return verify_kimi_completion(directory, job, state)
     receipt = state.get('remote_receipt') or {}
     try: validate_completion_receipt(job, receipt)
     except ValueError as error:
@@ -384,7 +549,9 @@ def worker(args):
         try:
             child = subprocess.Popen(ssh_argv(job['host'], script, carrier=True), stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            child.stdin.write(packet_for(job, 'dispatch', (directory / 'prompt.bin').read_bytes()))
+            profile = directory / 'kimi-agent.md'
+            child.stdin.write(packet_for(job, 'dispatch', (directory / 'prompt.bin').read_bytes(),
+                                         profile=profile.read_bytes() if profile.exists() else None))
             child.stdin.close()
         except (OSError, BrokenPipeError) as error:
             state = {**state, 'status': 'unknown', 'error': str(error),
@@ -534,8 +701,13 @@ def main():
     start.add_argument('--site', required=True); start.add_argument('--agent', default='codex')
     start.add_argument('--cwd', required=True); start.add_argument('--request-id', required=True)
     start.add_argument('--prompt-file', type=Path, required=True)
-    start.add_argument('--model', default='gpt-6-astra'); start.add_argument('--effort', default='xhigh')
-    start.add_argument('--sandbox', default='workspace-write'); start.add_argument('--timeout', type=int, default=900)
+    # Codex defaults: gpt-6-astra / xhigh / workspace-write. Kimi is fixed at kimi_backend's profile.
+    start.add_argument('--model'); start.add_argument('--effort')
+    start.add_argument('--sandbox'); start.add_argument('--timeout', type=int, default=900)
+    start.add_argument('--kimi-tool', action='append', dest='kimi_tool')
+    again = sub.add_parser('revise')
+    again.add_argument('job'); again.add_argument('--request-id', required=True)
+    again.add_argument('--prompt-file', type=Path, required=True); again.add_argument('--timeout', type=int)
     for name in ('status', 'receipt', 'await-event', 'accept', 'reclaim', '_worker'):
         command = sub.add_parser(name); command.add_argument('job')
         if name == 'await-event':
@@ -545,6 +717,7 @@ def main():
     sub.add_parser('list')
     args = parser.parse_args(); args.state_dir = args.state_dir.expanduser().resolve()
     if args.command == 'dispatch': return dispatch(args)
+    if args.command == 'revise': return revise(args)
     if args.command == 'list':
         owner = validate_uuid(args.owner, 'owner'); jobs = []
         if args.state_dir.exists():

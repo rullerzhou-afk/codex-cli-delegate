@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode／Pi／独立 Codex 会话执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode/Pi/Codex 保留原生 CLI 后端。包含同会话返工、通知、完成证据核验、额度预警与中断恢复，也支持向 Windows 派发并观察一轮有界 Codex CLI 工作。
+由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode／Pi／独立 Codex 会话执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode/Pi/Codex 保留原生 CLI 后端。包含同会话返工、通知、完成证据核验、额度预警与中断恢复，也支持向 Windows 上的 Codex 或 Kimi 派发有界任务（Kimi 可在同一会话返工），并观察已有的 Windows Codex 轮次。
 
 ## 何时委派
 
@@ -16,7 +16,7 @@
 
 没有明确的外部路由时，本 skill 不宣称路由优先级，也不新开外部任务；但它仍必须恢复并处置自己先前启动的外部任务。仅在这种未点名外部路线的情况下，宿主路由 skill 可以选择原生 worker，本仓库既不观察也不控制该 worker。一旦本 skill 启动了外部任务，其 job／轮次／恢复／验收规则会一直生效到释放预订为止。若明确要求的外部路由不可用，应如实报告，绝不静默改用其他路由、模型或账号，也不能改用原生 worker 顶替。参见[外部委派策略](skill/references/delegation-policy.md)。
 
-明确要求由 Mac Codex 给 Windows Codex agent 派单时，使用独立的 [Windows 远程 Codex](skill/references/remote-codex.md) 入口。它只执行一个有界 `codex exec` 任务，不属于 Claude/Kimi/OpenCode/Pi 后端，不是通用远程 shell、桌面队列或可脱离服务。host、cwd、模型、effort、沙箱、Windows 原生沙箱实现和超时均由私有白名单固定。
+明确要求给 Windows 上的 Codex 或 Kimi 派单时，使用独立的 [Windows 远程 Codex / Kimi](skill/references/remote-codex.md) 入口。每单是一个有界的 `codex exec` 或 Kimi `-p` 任务，不属于本机 Claude/Kimi/OpenCode/Pi 后端，不是通用远程 shell、桌面队列或可脱离服务。host、cwd、模型、effort、Codex 沙箱或 Kimi 工具、Windows 原生沙箱实现和超时均由私有白名单固定。Kimi 在 Windows 上没有沙箱。
 
 ## 安装和使用
 
@@ -46,7 +46,7 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 ## 当前边界
 
-- 本机多提供方委派以 macOS 为已验证平台。将文件复制到 Windows 不等于完整 Windows 本机运行时可用；Mac 向 Windows Codex 进行一次有界 SSH 派单/观察是另一项独立能力。
+- 本机多提供方委派以 macOS 为已验证平台。将文件复制到 Windows 不等于完整 Windows 本机运行时可用；Mac 向 Windows 上的 Codex 或 Kimi 进行有界 SSH 派单（以及观察 Codex 轮次）是另一项独立能力。
 - Windows 派单只允许策略白名单中的单任务。SSH 是全程保活载荷；Mac 睡眠或断网可能终止远端任务并留下部分修改，不支持脱离续跑、远程队列、多 agent 或远程 stop。
 - 默认配置：Claude `claude-opus-5-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名），Pi `openrouter/stealth/union-alpha/off`，Codex `gpt-6-sol/xhigh`。模型与校验逻辑一起固定，当前没有任意模型选择功能。
 - OpenCode 以 CLI 1.18.30 为历史实测参考，已取消精确版本白名单；启动前检查所需参数，运行后核验原生记录，版本号变化本身不拦截。Kimi 要求已有思考配置；具体见 [后端参考](skill/references/kimi.md)。
@@ -56,7 +56,7 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-当前统一测试结果为 **289 项 Python 和 20 项 JavaScript 全部通过**：可移植组 204 项 Python + 20 项 JavaScript，macOS 进程身份组 85 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
+当前统一测试结果为 **300 项 Python 和 30 项 JavaScript 全部通过**：可移植组 215 项 Python + 30 项 JavaScript，macOS 进程身份组 85 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
 
 历史分项数量统一保留在[更新记录](CHANGELOG.md)，不再与当前总数混排。已有 macOS 真实 SDK、通知和提供方验证属于不同证据类别，不能代替其他机器、后续 CLI 版本或 CI 的验证。详见[公开合同](docs/CONTRACTS.md)和[验证边界](docs/VALIDATION.md)。
 

@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegate
-description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, a separate Codex session, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also dispatches and tracks bounded remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, a separate Codex session, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also dispatches and tracks bounded remote Windows Codex and Kimi turns.
 ---
 
 # Codex CLI Delegate
@@ -24,12 +24,15 @@ only when the user explicitly asks for a separate Codex session, never for plain
 solo work. See [Codex](references/codex.md); write its task in plain engineering
 language rather than adversarial or emphatic phrasing, as described there.
 
-When the user explicitly asks the Mac Codex agent to dispatch work to a Windows
-Codex agent, use the separate [Remote Windows Codex](references/remote-codex.md)
-entry point. It supports one bounded `codex exec` task only. It is not one of
-the external backends above and does not reuse the `delegate_start` lifecycle.
-The remote cwd, model, effort, sandbox, timeout, and native Windows sandbox
-implementation must be fixed by a private policy allowlist.
+When the user explicitly asks to dispatch work to Codex or Kimi on a Windows
+machine, use the separate [Remote Windows Codex / Kimi](references/remote-codex.md)
+entry point. Codex runs one bounded `codex exec` task per job; Kimi runs one `-p`
+task per job and can continue the same native session with `revise`. It is not
+one of the external backends above, does not satisfy a request for the local
+Kimi route, and does not reuse the `delegate_start` lifecycle. The remote cwd,
+model, effort, Codex sandbox or Kimi tools, timeout, and native Windows sandbox
+implementation must be fixed by a private policy allowlist. Kimi has no sandbox
+on Windows.
 
 Worktrees and tool allowlists are specific controls, not an operating-system sandbox. Without an explicit external route this Skill does not claim routing precedence or start a new external job, but it must still recover and resolve jobs its tools previously started; in that no-route case, a host routing skill may select a native worker, which this repository neither observes nor controls. Once this Skill starts an external job, its job, round, recovery, and acceptance rules apply through release of its reservation. If an explicitly requested external route is unavailable, report it and never silently substitute a route, model, or account, including by using a native worker. See [external delegation policy](references/delegation-policy.md).
 
@@ -62,7 +65,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 - [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
 - [Kimi](references/kimi.md), [OpenCode](references/opencode.md), and [Pi](references/pi.md): native CLI adapters, tool selection, configuration, JSON events, and native evidence. Bash or PowerShell permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented.
 - [Codex](references/codex.md): a separate local `codex exec` session, sandbox selection with `codex_tools` (`read`, `write`, `network`), native rollout verification, same-thread revisions, rate-limit reporting, and task wording.
-- [Remote Windows Codex](references/remote-codex.md): policy-bound SSH dispatch, exact session/turn observation, carrier-loss boundaries, and independent acceptance. This is separate from local delegation.
+- [Remote Windows Codex / Kimi](references/remote-codex.md): policy-bound SSH dispatch, same-session Kimi revisions, exact session/turn observation, carrier-loss boundaries, and independent acceptance. This is separate from local delegation.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 
 The local runner is validated on macOS. Runtime evidence and credentials remain local; publishing the tool does not authorize uploading task records.

@@ -1,6 +1,6 @@
-# Windows Codex CLI 的远程派单与完成通知
+# Windows Codex / Kimi CLI 的远程派单与完成通知
 
-这是独立能力，不属于 Claude/Kimi/OpenCode/Pi 外部后端，也不能满足用户对这些路线的点名要求。它只处理 Windows 上的 Codex CLI：可以从 Mac 发起一个有界 `codex exec` 任务，或只观察一个已经存在的准确轮次。第一阶段不支持远端 Claude/Kimi/OpenCode/Pi、桌面 `queue`、多 agent、远程 stop、断线续跑或通用 shell。
+这是独立能力，不属于 Claude/Kimi/OpenCode/Pi 外部后端，也不能满足用户对这些本机路线的点名要求。它处理 Windows 上的 Codex CLI 和 Kimi Code CLI：可以从 Mac 发起一个有界 `codex exec` 任务或 Kimi `-p` 任务，Kimi 还能在同一原生会话里返工；另外可以只观察一个已经存在的准确 Codex 轮次。Windows Kimi 任务只满足“让 Windows 电脑上的 Kimi 做”这类请求。不支持远端 Claude/OpenCode/Pi、桌面 `queue`、多 agent、远程 stop、断线续跑或通用 shell。
 
 ## 发起一个 Windows Codex 任务
 
@@ -63,6 +63,43 @@ python3 <task-script> accept <job> --notes-file <Codex独立验收记录>
 `awaiting_review` 不是业务验收。必须核对 `final.md`、远端实际改动/产物、准确 session/turn/log、CLI 路径和版本、实际 model/effort/sandbox/approval，再调用 `accept`。本机 `stream.ndjson` 是私有的完整 `codex exec --json` 事件流，可能含推理摘要、工具参数和工具输出；不要把它当普通结果发布或提交。对外状态和 `final.md` 只保留规范化证据与正式回复。
 
 原生日志能独立证明 Codex 轮次报告的 `sandbox=workspace-write` 和 `approval=never`，但当前日志没有独立字段证明底层 Windows 实现究竟是 `elevated` 还是 `unelevated`。`windows_sandbox` 因此是策略固定并传给单次调用的“请求值”，不是从会话日志反证出的“实际实现值”。官方将 `unelevated` 作为 elevated 初始化失败时的后备；它隔离更弱，可能依赖用户 ACL，并且同用户进程边界更弱。使用前应把这个差异当成明确风险，而不是把 `workspace-write` 等同于更强的 elevated 隔离。
+
+## 发起一个 Windows Kimi 任务
+
+同一个派单器用 `--agent kimi`。站点要有 `kimi` 段，模型和深度固定为本机 Kimi 后端的 `kimi-code/k3-256k` / `max`，`tools` 列出允许按任务选用的 Kimi 工具：
+
+```json
+"kimi": {
+  "kimi_home": "C:\\Users\\USER\\.kimi-code",
+  "models": ["kimi-code/k3-256k"],
+  "efforts": ["max"],
+  "tools": ["Read", "ReadMediaFile", "Glob", "Grep", "Write", "Edit", "Bash"]
+}
+```
+
+远端还要有：Kimi Code CLI（npm 包 `@moonshot-ai/kimi-code` 或 `kimi.exe`）、有效登录、配置里定义了 `kimi-code/k3-256k`，并且 `[thinking]` 已经是 `enabled = true`、`effort = "max"`。Kimi 没有单次调用的深度参数，runner 只检查、不改配置。npm 安装时 runner 核对包装脚本确实指向 `node_modules\@moonshot-ai\kimi-code\dist\main.mjs`，再用 `node.exe` 直接启动；不经过 `cmd.exe`，否则任务文字会被截在 8191 字符。
+
+```text
+python3 <task-script> --policy <0600-policy.json> dispatch \
+  --site windows-dev --agent kimi --cwd 'D:\work\repo' \
+  --request-id <新UUID> --prompt-file <task.md> --timeout 86400 \
+  --kimi-tool Read --kimi-tool Glob --kimi-tool Grep --kimi-tool Edit --kimi-tool Bash
+
+python3 <task-script> --policy <0600-policy.json> revise <上一单job> \
+  --request-id <新UUID> --prompt-file <返工说明.md>
+```
+
+- 不传 `--kimi-tool` 时用只读默认 Read / ReadMediaFile / Glob / Grep。`--sandbox` 只用于 Codex，和 Kimi 一起传会报错。
+- **Kimi 没有沙箱。** 选了 Write、Edit 或 Bash，就等于能以远端用户身份改文件、跑任意命令；工具清单和工作目录都不是隔离边界。只在任务已授权改动、目录和改动基线明确时选用，并在验收时核对远端实际改动。失败或超时的写入任务一律标记 `partial_write_risk`。
+- 策略 `allow_non_git=false` 时，runner 自己检查工作目录在某个 Git 仓库里（Kimi 本身不查）。
+- 任务文字只能作为 `-p` 参数传入：加上本轮标记后不超过 24,000 个字符（Windows 整条命令行上限 32,767）。本单标记由请求 ID 派生，同一请求重试仍能去重。
+- 每单在远端 job 目录写一个只含所选工具的 agent 配置和空技能目录，并设 `KIMI_CODE_HOME` 为策略里的 Kimi 目录。Kimi 仍会加载该用户配置里的 hooks 和 MCP 配置，但 agent 配置不开放 MCP 工具。
+
+完成判定分两层。Windows runner 先按会话索引里相同的会话 ID 与工作目录找到原生会话（不按“最新会话”猜），核对本轮标记恰好一次、实际模型与深度、绑定的工具、正常结束和最终回复，得到 `completed_claimed`。Mac 再通过 `evidence` 动作分块取回该会话的 `state.json` 和 `agents\main\wire.jsonl`，按长度与 SHA-256 重组，用本机 Kimi 后端同一套 `check_turn` 规则再解析一遍，全部通过才进入 `awaiting_review`。取回的原始记录存为 job 目录下的 `kimi-state.json`、`kimi-wire.jsonl`，和 `stream.ndjson` 一样是私有资料，可能含文件内容和命令输出，不要当结果发布。
+
+返工用 `revise`，只接受 `awaiting_review` 或 `accepted` 的最新一轮。它新建一个关联 job（记录 `parent_job`、`round`），用上一轮核验过的原生记录长度和摘要作基线，通过 `--session` 续接同一会话；工具在会话创建时已绑定，返工不能更换。上一轮若还在 `awaiting_review`，会被标记为 `superseded`。如果该会话在上一轮核验之后被别人续接过，runner 报 `kimi_session_changed` 并拒绝续接，不猜着接着跑；这时另派新单。
+
+远端目录锁只在任务运行期间持有，结束时由 runner 释放；`accept` 只在本机记录验收，不涉及远端锁。
 
 ## 只观察已经存在的 Windows Codex 轮次
 

@@ -4,6 +4,38 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Windows Kimi dispatch
+
+- The remote Windows dispatcher now runs Kimi Code as well as Codex
+  (`--agent kimi`). A site opts in with a `kimi` block: the Kimi home, the
+  fixed `kimi-code/k3-256k` / `max` profile, and the tools a task may choose.
+  Each task picks tools with `--kimi-tool`; the default is read-only (Read,
+  ReadMediaFile, Glob, Grep). Kimi has no sandbox on Windows: Write, Edit, or
+  Bash act with the remote user's rights, so a failed or timed-out write task
+  always carries `partial_write_risk`.
+- The runner starts the npm entry script with `node.exe` directly, never
+  through `cmd.exe`, which would cut the `-p` task at 8191 characters. It writes
+  a per-job agent profile and an empty skills directory. It requires the
+  existing `[thinking]` section to be `enabled = true` / `effort = "max"`
+  without changing it, enforces the policy's git-only rule itself, and caps
+  task text plus marker at 24,000 characters.
+- Verification has two layers. The runner finds the session through Kimi's own
+  index by exact id and cwd, then checks the marker, model, effort, bound tools,
+  ending, and final text. The Mac fetches `state.json` and the main
+  `wire.jsonl` in digest-checked chunks and repeats the checks in Python through
+  the macOS adapter's `check_turn`. That function was extracted from
+  `kimi_backend.verify` without changing its rules.
+- `revise` continues a verified Kimi job's native session as a linked job
+  (`parent_job`, `round`), with the verified record as its baseline. A session
+  continued elsewhere since then is refused (`kimi_session_changed`). A parent
+  still awaiting review becomes `superseded`.
+- 11 Python and 10 JavaScript fixture tests were added. Current aggregate:
+  300 Python and 30 JavaScript tests pass (portable 215 + 30, process identity
+  85).
+- Live runs on Windows 11 with Kimi Code 0.42.0 are recorded in
+  [validation](docs/VALIDATION.md): a read-only task, a same-session revision,
+  a write task, and a Codex regression run after the runner change.
+
 ## Unreleased — task wording for the Codex backend
 
 - `skill/references/codex.md` adds a "Writing the task" section. Task text from
