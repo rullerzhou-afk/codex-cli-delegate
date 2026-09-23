@@ -1,7 +1,8 @@
 """Durable text checks for the Phase 1 external-delegation policy.
 
 These verify that the trigger and co-installation precedence text stays present
-across the canonical reference, the Skill, and both READMEs. They are not a
+across the canonical reference, the Skill, and both READMEs, and that the Codex
+reference keeps its task-wording guidance. They are not a
 routing test: passing them does not prove a model will always choose the
 desired route, and they cannot measure quota savings.
 """
@@ -14,6 +15,7 @@ SKILL = REPO / "skill" / "SKILL.md"
 AGENT_METADATA = REPO / "skill" / "agents" / "openai.yaml"
 README = REPO / "README.md"
 README_ZH = REPO / "README.zh-CN.md"
+CODEX_REFERENCE = REPO / "skill" / "references" / "codex.md"
 
 # Concept -> phrases that must all appear. Kept as stable semantic anchors, not
 # a verbatim copy of the prose, so wording can improve without weakening intent.
@@ -194,6 +196,20 @@ AGENT_REQUIRED = [
     "verify the saved backend before reporting identity",
 ]
 
+# Neutral task wording must not turn into a ceiling on confirmed findings.
+CODEX_WORDING_REQUIRED = [
+    "## Writing the task",
+    "Keep every technical requirement and change only the vocabulary",
+    "A review the user asked to be adversarial still happens",
+    "The table sets default wording, not a ceiling on conclusions",
+    "name it in accurate security terms",
+    "Downgrading a confirmed security finding",
+    "is worse than harsh wording",
+    "State the precondition, state transitions, expected result, and actual result",
+    "no operational steps transferable to third-party systems are needed",
+    "Do not switch model, account, or route",
+]
+
 FORBIDDEN_EN = [
     "native worker may be reported as",
     "may substitute a native worker",
@@ -259,6 +275,10 @@ class PolicyText(unittest.TestCase):
     def test_chinese_readme_is_synchronized(self):
         self.assert_phrases(read(README_ZH), README_ZH_REQUIRED, "README.zh-CN.md")
         self.assert_forbidden_absent(read(README_ZH), FORBIDDEN_ZH, "README.zh-CN.md")
+
+    def test_codex_reference_keeps_neutral_task_wording(self):
+        self.assert_phrases(read(CODEX_REFERENCE), CODEX_WORDING_REQUIRED, "codex.md")
+        self.assertIn("task wording", normalise(read(SKILL)))
 
     def test_reference_is_linked_from_every_public_doc(self):
         for path in (SKILL, README, README_ZH):

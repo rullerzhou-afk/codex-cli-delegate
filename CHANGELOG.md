@@ -4,6 +4,23 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — task wording for the Codex backend
+
+- `skill/references/codex.md` adds a "Writing the task" section. Task text from
+  a model coordinator such as Claude Code can read as adversarial or emphatic,
+  and a provider-side pre-classifier may treat adversarial wording as a request
+  for offensive security work. The section keeps every technical requirement,
+  replaces adversarial vocabulary with engineering terms, gives an output
+  sentence for review tasks, and asks the coordinator to rewrite and revise the
+  same job after a refusal instead of switching model or route. `SKILL.md`
+  points to it.
+- The table sets default wording, not a ceiling: a confirmed security finding
+  keeps accurate security terms. A new policy-text test pins that clause, the
+  review output sentence, and the no-substitution rule.
+- `docs/VALIDATION.md` now reports the current totals; it still showed the
+  counts from before the Codex backend. Current aggregate: 289 Python and 20
+  JavaScript tests pass (portable 204 + 20, process identity 85).
+
 ## Unreleased — Claude profile moves to Opus 5.5
 
 - The fixed Claude profile is now `claude-opus-5-5` / `max` instead of

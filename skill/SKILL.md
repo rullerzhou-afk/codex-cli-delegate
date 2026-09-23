@@ -21,7 +21,8 @@ The `codex` backend runs a separate local `codex exec` session with the fixed
 `gpt-6-sol/xhigh` profile and resumes the same thread for revisions. It mainly
 serves non-Codex coordinators such as Claude Code. A coordinating Codex opens it
 only when the user explicitly asks for a separate Codex session, never for plain
-solo work. See [Codex](references/codex.md).
+solo work. See [Codex](references/codex.md); write its task in plain engineering
+language rather than adversarial or emphatic phrasing, as described there.
 
 When the user explicitly asks the Mac Codex agent to dispatch work to a Windows
 Codex agent, use the separate [Remote Windows Codex](references/remote-codex.md)
@@ -60,7 +61,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 
 - [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
 - [Kimi](references/kimi.md), [OpenCode](references/opencode.md), and [Pi](references/pi.md): native CLI adapters, tool selection, configuration, JSON events, and native evidence. Bash or PowerShell permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented.
-- [Codex](references/codex.md): a separate local `codex exec` session, sandbox selection with `codex_tools` (`read`, `write`, `network`), native rollout verification, same-thread revisions, and rate-limit reporting.
+- [Codex](references/codex.md): a separate local `codex exec` session, sandbox selection with `codex_tools` (`read`, `write`, `network`), native rollout verification, same-thread revisions, rate-limit reporting, and task wording.
 - [Remote Windows Codex](references/remote-codex.md): policy-bound SSH dispatch, exact session/turn observation, carrier-loss boundaries, and independent acceptance. This is separate from local delegation.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 

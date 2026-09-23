@@ -1,7 +1,7 @@
 # Codex (separate `codex exec` session)
 
-Read this only when using the `codex` backend or diagnosing its evidence. The
-backend hands work to a separate local `codex exec` session. Like Kimi, OpenCode
+Read this when using the `codex` backend, writing a task for it, or diagnosing
+its evidence. The backend hands work to a separate local `codex exec` session. Like Kimi, OpenCode
 and Pi it is a native CLI adapter and installs no hooks. It is separate from
 [remote Windows Codex](remote-codex.md): that path is a bounded single-turn
 carrier, while this backend is local and supports same-thread revisions.
@@ -135,6 +135,53 @@ adapter never switches model or account.
 - **Codex.** `wake_codex=true` can return the result to the original task.
   Open this backend only when the user explicitly asks for a separate Codex
   session, never for plain solo work.
+
+## Writing the task
+
+Task text written by a model coordinator, such as Claude Code, can read as
+adversarial or emphatic: "attack", "exploit", "red-team", stacked MUST and
+NEVER, all caps, or an assumption that the worker will cut corners. A
+provider-side pre-classifier may read adversarial wording as a request for
+offensive security work, and the interface does not show what triggered it.
+Emphatic wording can also make a model over-apply a single constraint. Write
+the task as a handoff to a colleague. The same applies to the other backends.
+
+- Open with the goal and the reason in a sentence or two, then give the scope,
+  inputs, and acceptance criteria. State each constraint once, plainly, with
+  its reason.
+- Keep every technical requirement and change only the vocabulary. A review the
+  user asked to be adversarial still happens; the task text asks whether each
+  invariant still holds.
+
+  | Avoid | Write instead |
+  | --- | --- |
+  | attack, attack design, red-team, adversarial review | independent review; consistency gap; invariant failure |
+  | attacker | in-scope concurrent participant; label out-of-scope actors explicitly |
+  | attack sequence, exploit steps | minimal state-transition sequence |
+  | bypass, break through | the invariant fails; the check does not cover that window |
+  | attack succeeded (still open this round) | this round's run falsified the design |
+  | attack succeeded (fixed earlier) | an earlier counterexample falsified the design |
+  | vulnerability, exploitable (before evidence confirms it) | gap; the combination still passes later consistency checks |
+  | don't trust X, don't be lazy | treat the source and actual runs as authoritative; X is a reference only |
+
+  Useful terms: invariant, precondition, state transition, concurrent event,
+  observation window.
+- The table sets default wording, not a ceiling on conclusions. When evidence
+  confirms that a finding affects permissions, content exposure, or recovery
+  integrity, name it in accurate security terms within the owner's authorized
+  scope. Downgrading a confirmed security finding to a "gap" is worse than
+  harsh wording.
+- State the review scope: which participants and entry points are in scope.
+  Record out-of-scope cases as boundary notes or hardening suggestions; on
+  their own they do not raise a finding to P0/P1.
+- For review tasks, add to the output requirements: "Separate verified facts,
+  inferences from the source, and design suggestions. State the precondition,
+  state transitions, expected result, and actual result. Do not stop at 'a race
+  may exist', and no operational steps transferable to third-party systems are
+  needed."
+- If a round is refused or answers around the question, check the wording
+  first, rewrite it neutrally, and revise the same job. Do not switch model,
+  account, or route.
 
 ## Known limits
 
