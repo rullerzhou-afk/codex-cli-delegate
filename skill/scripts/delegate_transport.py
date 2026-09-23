@@ -36,6 +36,11 @@ class PreparedRound(NamedTuple):
     monitor: object
 
 
+def reject_codex_options(args):
+    if getattr(args, "codex_bin", None) or getattr(args, "codex_tool", None):
+        raise CliError("wrong_backend", "Codex options require --backend codex")
+
+
 class Transport:
     """Provider adapter interface used by the provider-independent lifecycle.
 
@@ -71,6 +76,7 @@ class Transport:
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
         if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
             raise CliError("wrong_backend", "Pi options require --backend pi")
+        reject_codex_options(args)
         return {}, {}, self.new_session_id()
 
     def revision_additions(self, additions):
@@ -138,6 +144,7 @@ class ClaudeTransport(Transport):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
         if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
             raise CliError("wrong_backend", "Pi options require --backend pi")
+        reject_codex_options(args)
         from claude_quota import account_home
         claude_bin = ct.resolve_claude_bin(ctx.claude_bin_raw)
         quota = ct.quota_gate(ctx, account_home(), refresh=True)
@@ -202,6 +209,7 @@ class KimiTransport(Transport):
             raise CliError("wrong_backend", "Pi options require --backend pi")
         if read_dirs or required_files:
             raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        reject_codex_options(args)
         if os.path.getsize(prompt) > 64 * 1024:
             raise CliError("kimi_prompt_size", "Kimi prompt must be at most 64 KiB (CLI argument limit)")
         import kimi_backend
@@ -255,6 +263,7 @@ class OpenCodeTransport(Transport):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
         if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
             raise CliError("wrong_backend", "Pi options require --backend pi")
+        reject_codex_options(args)
         import opencode_backend
         fields = opencode_backend.prepare(args.opencode_bin, args.opencode_tool, args.allow_tool)
         fields.update(model=opencode_backend.MODEL, effort=opencode_backend.EFFORT, claude_bin=None,
@@ -303,6 +312,7 @@ class PiTransport(Transport):
             raise CliError("wrong_backend", "Kimi options require --backend kimi")
         if getattr(args, "opencode_bin", None) or getattr(args, "opencode_tool", None):
             raise CliError("wrong_backend", "OpenCode options require --backend opencode")
+        reject_codex_options(args)
         import pi_backend
         session_id = self.new_session_id()
         fields = pi_backend.prepare(args.pi_bin, args.pi_tool, args.allow_tool)
@@ -344,6 +354,62 @@ class PiTransport(Transport):
         return kimi_backend.capture_identity(pid, token, job["pi_runtime"])
 
 
+class CodexTransport(Transport):
+    """Codex CLI adapter: `codex exec --json`, resumed on the saved native thread."""
+
+    name = "codex"
+    native_session = True
+
+    def start_config(self, ctx, args, prompt, read_dirs, required_files):
+        if read_dirs or required_files:
+            raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        if getattr(args, "kimi_bin", None) or getattr(args, "kimi_tool", None):
+            raise CliError("wrong_backend", "Kimi options require --backend kimi")
+        if getattr(args, "opencode_bin", None) or getattr(args, "opencode_tool", None):
+            raise CliError("wrong_backend", "OpenCode options require --backend opencode")
+        if getattr(args, "pi_bin", None) or getattr(args, "pi_tool", None):
+            raise CliError("wrong_backend", "Pi options require --backend pi")
+        import codex_backend
+        fields = codex_backend.prepare(getattr(args, "codex_bin", None), getattr(args, "codex_tool", None),
+                                       args.allow_tool)
+        fields.update(model=codex_backend.MODEL, effort=codex_backend.EFFORT, claude_bin=None,
+                      claude_config_dir=None, claude_config_env=None)
+        return fields, {}, None
+
+    def revision_config(self, ctx, job, read_dirs, required_files):
+        if read_dirs or required_files:
+            raise CliError("wrong_backend", "--read-dir/--require-file currently apply to Claude")
+        import codex_backend
+        codex_backend.require_profile(job)
+        return {}
+
+    def baseline(self, job):
+        import codex_backend
+        return codex_backend.baseline(job)
+
+    def prepare(self, state_dir, job, record, resume, prompt_file, directory):
+        import claude_task as ct
+        import codex_backend
+        argv, env, prompt_file = codex_backend.setup(job, record, resume, prompt_file, directory)
+        monitor = codex_backend.CodexMonitor(directory, job.get("session_id"), record["started_epoch"],
+                                             ct.write_json)
+        return PreparedRound(argv=argv, env=env, prompt_file=prompt_file, monitor=monitor)
+
+    def launch_stamp(self, job, stored, stored_record):
+        stored["codex_version"] = job["codex_version"]
+        stored["codex_compatibility"] = job["codex_compatibility"]
+        stored["codex_system_proxy"] = job["codex_system_proxy"]
+        stored_record["codex_version"] = job["codex_version"]
+
+    def capture_child(self, job, pid, token):
+        import kimi_backend
+        return kimi_backend.capture_identity(pid, token, job["codex_bin"])
+
+    def verify(self, job, record, stdout_path, exit_code):
+        import codex_backend
+        return codex_backend.verify(job, record, stdout_path, exit_code)
+
+
 _REGISTRY = {}
 
 
@@ -377,3 +443,4 @@ register(ClaudeTransport())
 register(KimiTransport())
 register(OpenCodeTransport())
 register(PiTransport())
+register(CodexTransport())

@@ -68,7 +68,7 @@ def inside(root, relative):
 
 
 def visible_responses(data, backend, session_id):
-    responses, offset, pi_session_headers = [], 0, 0
+    responses, offset, pi_session_headers, codex_threads = [], 0, 0, 0
     for number, line in enumerate(data.splitlines(keepends=True), 1):
         if not line.endswith(b'\n'):
             raise EvidenceError('Source stream ends with an incomplete record')
@@ -86,6 +86,10 @@ def visible_responses(data, backend, session_id):
             pi_session_headers += 1
             if row.get('id') != session_id:
                 raise EvidenceError('Pi source stream contains another session')
+        if backend == 'codex' and row.get('type') == 'thread.started':
+            codex_threads += 1
+            if row.get('thread_id') != session_id:
+                raise EvidenceError('Codex source stream contains another thread')
         texts = []
         if backend == 'claude' and not row.get('parent_tool_use_id'):
             if row.get('type') == 'assistant':
@@ -109,6 +113,10 @@ def visible_responses(data, backend, session_id):
                 for index, part in enumerate(message['content']):
                     if isinstance(part, dict) and part.get('type') == 'text' and isinstance(part.get('text'), str):
                         texts.append(('/message/content/%d/text' % index, part['text'], 'assistant_text'))
+        elif backend == 'codex' and row.get('type') == 'item.completed':
+            item = row.get('item') or {}
+            if item.get('type') == 'agent_message' and isinstance(item.get('text'), str):
+                texts.append(('/item/text', item['text'], 'assistant_text'))
         for pointer, value, kind in texts:
             if value:
                 responses.append(dict(text=value, kind=kind, json_pointer=pointer, stream_line=number,
@@ -117,6 +125,8 @@ def visible_responses(data, backend, session_id):
         offset += len(line)
     if backend == 'pi' and pi_session_headers != 1:
         raise EvidenceError('Pi source stream must contain exactly one matching session header')
+    if backend == 'codex' and codex_threads != 1:
+        raise EvidenceError('Codex source stream must contain exactly one matching thread')
     return responses
 
 
@@ -150,7 +160,7 @@ def round_sources(job, round_index, source_root):
                 or any(results[0].get(k) != v for k, v in verification['result_event'].items())):
             raise EvidenceError('SDK result does not match the finalized source stream')
     backend = job.get('backend', 'claude')
-    if backend not in ('claude', 'kimi', 'opencode', 'pi'):
+    if backend not in ('claude', 'kimi', 'opencode', 'pi', 'codex'):
         raise EvidenceError('Unsupported backend')
     session = verification.get('native_session_id') or job.get('session_id')
     metadata = dict(job_id=job['job_id'], owner=job['owner'], backend=backend,

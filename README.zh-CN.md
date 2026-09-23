@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode／Pi 执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode/Pi 保留原生 CLI 后端。包含同会话返工、通知、完成证据核验、额度预警与中断恢复，也支持向 Windows 派发并观察一轮有界 Codex CLI 工作。
+由 Codex 规划任务、通过本机 MCP 委派 Claude Code／Kimi Code／OpenCode／Pi／独立 Codex 会话执行，并独立验收结果的社区 skill。Claude 使用 Agent SDK 保持连接，返工复用同一进程，停止后仍可恢复原会话；Kimi/OpenCode/Pi/Codex 保留原生 CLI 后端。包含同会话返工、通知、完成证据核验、额度预警与中断恢复，也支持向 Windows 派发并观察一轮有界 Codex CLI 工作。
 
 ## 何时委派
 
@@ -48,15 +48,15 @@ MCP 入口为 `scripts/delegate_mcp.py`，旧命令入口 `scripts/delegate.py` 
 
 - 本机多提供方委派以 macOS 为已验证平台。将文件复制到 Windows 不等于完整 Windows 本机运行时可用；Mac 向 Windows Codex 进行一次有界 SSH 派单/观察是另一项独立能力。
 - Windows 派单只允许策略白名单中的单任务。SSH 是全程保活载荷；Mac 睡眠或断网可能终止远端任务并留下部分修改，不支持脱离续跑、远程队列、多 agent 或远程 stop。
-- 默认配置：Claude `claude-opus-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名），Pi `openrouter/stealth/union-alpha/off`。模型与校验逻辑一起固定，当前没有任意模型选择功能。
+- 默认配置：Claude `claude-opus-5/max`，Kimi `kimi-code/k3-256k/max`，OpenCode `deepseek/deepseek-flash/high`（V4.1 Flash 正式调用名），Pi `openrouter/stealth/union-alpha/off`，Codex `gpt-6-sol/xhigh`。模型与校验逻辑一起固定，当前没有任意模型选择功能。
 - OpenCode 以 CLI 1.18.30 为历史实测参考，已取消精确版本白名单；启动前检查所需参数，运行后核验原生记录，版本号变化本身不拦截。Kimi 要求已有思考配置；具体见 [后端参考](skill/references/kimi.md)。
-- 默认只读的后端只有明确授权后才加入编辑或 shell。工具选择不是 OS 沙箱；Kimi/OpenCode/Pi 的 Bash 或 PowerShell 允许整个工具，不能冒充 Claude 的命令级规则。
+- 默认只读的后端只有明确授权后才加入编辑或 shell。工具选择不是 OS 沙箱；Kimi/OpenCode/Pi 的 Bash 或 PowerShell 允许整个工具，不能冒充 Claude 的命令级规则。Codex 始终有沙箱内 shell，`codex_tools` 选择只读或 workspace-write 沙箱及是否联网，审批固定为 never。
 - idle 或完成 hook 不代表通过验收。SDK 在本轮原生 result 到达后检查会话、本轮、模型和正式输出，旧 CLI 则在进程退出后核验，再由 Codex 检查实际文件与测试。
-- 默认不限返工次数，保留超时和异常检查。Claude 任一可靠额度窗口达到 90% 后暂停后续派单，当前轮继续完成；数据未知时不显示为零，也不保证账户永不越线。DeepSeek、Kimi 与 Pi/OpenRouter 额度尚未接入。
+- 默认不限返工次数，保留超时和异常检查。Claude 任一可靠额度窗口达到 90% 后暂停后续派单，当前轮继续完成；数据未知时不显示为零，也不保证账户永不越线。DeepSeek、Kimi 与 Pi/OpenRouter 额度尚未接入；Codex 每轮在回执 `quota` 报告原生额度快照，但不暂停派单。
 - 派单和返工带稳定请求 ID，断线后原参数重试不会重复派单；等待在程序内完成，不通过模型反复查状态。验收后关闭空闲 SDK 连接并释放目录锁。
 - ACP 和 OpenCode Server 尚未实现。不承诺唤醒已经结束的 Codex 任务。任务原文、思考、账号配置、运行日志和私人测试记录不随源码发布。
 
-当前统一测试结果为 **270 项 Python 和 20 项 JavaScript 全部通过**：可移植组 186 项 Python + 20 项 JavaScript，macOS 进程身份组 84 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
+当前统一测试结果为 **287 项 Python 和 20 项 JavaScript 全部通过**：可移植组 203 项 Python + 20 项 JavaScript，macOS 进程身份组 84 项 Python 且无跳过。使用 [统一测试入口](run_tests.py) 可输出机器可读汇总；进程身份测试需要读取系统进程信息，受限环境中的拒绝不能当成功。具体命令见[英文 README](README.md#tests)，不会调用付费模型。
 
 历史分项数量统一保留在[更新记录](CHANGELOG.md)，不再与当前总数混排。已有 macOS 真实 SDK、通知和提供方验证属于不同证据类别，不能代替其他机器、后续 CLI 版本或 CI 的验证。详见[公开合同](docs/CONTRACTS.md)和[验证边界](docs/VALIDATION.md)。
 
@@ -79,3 +79,9 @@ Claude 返工可追加 `allow_tools`、`read_dirs` 和 `required_files`；需要
 Kimi 默认增加 ReadMediaFile，支持图片/视频；可选 WebSearch、FetchURL、TodoList。Claude 增加 NotebookEdit 和按任务授权的 WebFetch/WebSearch；OpenCode 增加 webfetch/websearch/todowrite/lsp，write/apply_patch 输入归一到 edit 权限。Pi 默认只开 read/grep/find/ls，委派进程禁用扩展、skills、提示模板、主题和项目上下文文件。CLI 与 MCP 共用清单，`scripts/delegate.py capabilities` 可离线查询。[能力与旧会话边界](skill/references/tools.md)。
 
 相关历史测试数量见[更新记录](CHANGELOG.md)。一次真实 Kimi 0.42.0 任务调用 ReadMediaFile，工具返回图片内容，并正确识别自制图片的颜色形状，没有给 Bash。新增网页/Notebook/LSP 尚未做真实提供方调用验证。更新不会给旧 Kimi 会话更换已保存的工具 profile。
+
+### 本机 Codex 后端（2026-09-23）
+
+新增 `codex` 后端：派给一个独立的本机 `codex exec` 会话，固定 `gpt-6-sol` / `xhigh`，返工用 `codex exec resume` 续接同一线程。委派时不加载用户的 `config.toml` 和规则文件，因此不会带上用户的 MCP（包括本委派工具本身）、notify 程序或 hooks 信任状态；只跟随用户的 `respect_system_proxy` 设置。完成与否以原生 rollout 中带本轮标记的那一轮为准核验：模型、推理深度、目录、沙箱、审批和最终回复必须一致。每轮回执报告额度快照。它主要给 Claude Code 等非 Codex 协调方使用，Claude Code 的启动器和唤醒方式见 [Codex 参考](skill/references/codex.md)。
+
+一次真实 macOS 两轮冒烟由 Claude Code 发起，使用 ChatGPT 桌面端运行时 0.155.0-alpha.9.2：第一轮只读查询，第二轮在同一线程改写上一轮回答。同一台机器上，独立 CLI 0.154.0 跑不了 `gpt-6-sol`，0.156.0 的模型目录已包含它。

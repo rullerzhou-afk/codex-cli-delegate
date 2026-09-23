@@ -57,6 +57,15 @@ another.
   native-prefix, completion, and final-text verification. This proves the tested
   local route at that time; it does not prove future stealth-model availability
   or price.
+- **Codex:** on 2026-09-23 a Claude Code coordinator ran a two-round macOS
+  smoke through the MCP launcher. The run used the ChatGPT desktop runtime
+  0.155.0-alpha.9.2 with `gpt-6-sol` / `xhigh` and a read-only sandbox. Round
+  zero was a read-only lookup that used shell commands. Round one was a
+  same-thread `exec resume` rewrite that used no tools. Both rounds passed
+  thread, turn, model, effort, sandbox, approval, final-text, native-prefix, and
+  process-identity verification, and both desktop notifications were submitted.
+  On the same machine, standalone CLI 0.154.0 could not run `gpt-6-sol`, while
+  0.156.0 lists it; the 0.156.0 standalone path was checked only by preflight.
 - **Known limits carried forward from those runs:** the Sept 13 task-
   continuation smoke passed the first real Claude round, then the provider
   rejected the second message (`reasoning_extraction`) before executing the
@@ -143,8 +152,9 @@ The following are **not** claimed by this repository:
   `--restricted` are specific controls, not an OS boundary.
 - A guaranteed hard spending cap. Quota monitoring is best-effort on Claude's
   native windows; missing/stale data is unknown, and Kimi/DeepSeek/Pi/OpenRouter
-  account quotas are not monitored.
-- A Linux or Windows port of the full local Claude/Kimi/OpenCode/Pi delegation
+  account quotas are not monitored. Codex rate limits are reported per round,
+  not enforced.
+- A Linux or Windows port of the full local Claude/Kimi/OpenCode/Pi/Codex delegation
   and MCP/SDK lifecycle; the bounded Windows Codex SSH path is narrower. GUI
   behavior and Windows notification delivery are also not claimed.
 - Stable model routing, trigger decisions, or quota savings measured from

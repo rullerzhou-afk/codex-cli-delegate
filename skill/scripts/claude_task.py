@@ -73,7 +73,7 @@ EFFORT = "max"
 
 BASE_ALLOWED_TOOLS = ("Read", "Glob", "Grep")
 ENABLED_TOOLS = "Read,Write,Edit,NotebookEdit,Bash,Glob,Grep"
-from tool_catalog import (CLAUDE_OPTIONAL, KIMI_TOOLS, OPENCODE_TOOLS,
+from tool_catalog import (CLAUDE_OPTIONAL, CODEX_TOOLS, KIMI_TOOLS, OPENCODE_TOOLS,
                           OPENCODE_ALIASES, PI_TOOLS)
 ALLOW_RULE_TOOLS = frozenset(("Read", "Write", "Edit", "Glob", "Grep", "Bash") + CLAUDE_OPTIONAL)
 
@@ -1368,6 +1368,7 @@ def status_payload(ctx, job):
         "kimi_tools": job.get("kimi_tools"),
         "kimi_hooks": job.get("kimi_hooks"),
         "pi_tools": job.get("pi_tools"),
+        "codex_tools": job.get("codex_tools"),
         "requested": {"model": job.get("model"), "effort": job.get("effort")},
         "verified": {
             "ok": bool(verification.get("ok")),
@@ -1982,7 +1983,7 @@ def build_parser():
     sub.required = True
 
     start = sub.add_parser("start", help="start a new delegated job")
-    start.add_argument("--backend", choices=("claude", "kimi", "opencode", "pi"), default="claude")
+    start.add_argument("--backend", choices=("claude", "kimi", "opencode", "pi", "codex"), default="claude")
     start.add_argument("--transport", choices=("cli", "sdk"), default="cli", help="Claude transport; MCP uses sdk")
     start.add_argument("--opencode-bin", default=None, help="OpenCode executable")
     start.add_argument("--opencode-tool", action="append", default=[], choices=OPENCODE_TOOLS + tuple(OPENCODE_ALIASES))
@@ -1992,6 +1993,10 @@ def build_parser():
     start.add_argument("--pi-bin", default=None, help="Pi coding-agent executable (default: which('pi'))")
     start.add_argument("--pi-tool", action="append", default=[], choices=PI_TOOLS,
                        help="Pi built-in tool allowlist, repeatable; default read/grep/find/ls; shell tools are unrestricted")
+    start.add_argument("--codex-bin", default=None,
+                       help="Codex executable (default: the ChatGPT app's bundled codex, else which('codex'))")
+    start.add_argument("--codex-tool", action="append", default=[], choices=CODEX_TOOLS,
+                       help="Codex sandbox selection, repeatable; default read (read-only); write = workspace-write; network requires write")
     start.add_argument("--cwd", required=True, help="absolute work directory")
     start.add_argument("--prompt-file", required=True, help="file containing the task text")
     start.add_argument("--allow-tool", action="append", default=[], help="extra narrow permission rule, repeatable")

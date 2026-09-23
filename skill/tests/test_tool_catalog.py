@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 import claude_task as ct
+import codex_backend as cx
 import kimi_backend as kb
 import opencode_backend as oc
 import pi_backend as pi
@@ -33,14 +34,16 @@ class ToolCatalogTests(unittest.TestCase):
             self.assertNotIn('WebSearch', profile)
 
     def test_same_validation_for_mcp_backend_and_cli(self):
-        for backend, prepare in [('kimi', kb.prepare), ('opencode', oc.prepare), ('pi', pi.prepare)]:
+        for backend, prepare in [('kimi', kb.prepare), ('opencode', oc.prepare), ('pi', pi.prepare),
+                                 ('codex', cx.prepare)]:
             for tools in [['MadeUp'], ['Agent'], ['mcp__unknown'], ['*'], 'Read', [None]]:
                 with self.subTest(backend=backend, tools=tools), self.assertRaises(ct.CliError):
                     prepare('/bin/echo', tools, [])
         parser = ct.build_parser()
         for backend, names in [('kimi', catalog.KIMI_TOOLS),
                                ('opencode', catalog.OPENCODE_TOOLS + tuple(catalog.OPENCODE_ALIASES)),
-                               ('pi', catalog.PI_TOOLS)]:
+                               ('pi', catalog.PI_TOOLS),
+                               ('codex', catalog.CODEX_TOOLS)]:
             for name in names:
                 args = parser.parse_args(['start', '--cwd', '/tmp', '--prompt-file', '/tmp/task', '--backend', backend, '--'+backend+'-tool', name])
                 self.assertEqual(getattr(args, backend+'_tool'), [name])
@@ -82,6 +85,8 @@ class ToolCatalogTests(unittest.TestCase):
         self.assertIn('ReadMediaFile', info['kimi']['supported'])
         self.assertIn('webfetch', info['opencode']['supported'])
         self.assertEqual(info['pi']['default'], ['read', 'grep', 'find', 'ls'])
+        self.assertEqual(info['codex']['default'], ['read'])
+        self.assertEqual(info['codex']['supported'], ['read', 'write', 'network'])
 
     def test_pi_tools_do_not_change_existing_request_digest_shape(self):
         with tempfile.TemporaryDirectory() as root:

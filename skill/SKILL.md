@@ -1,6 +1,6 @@
 ---
 name: codex-cli-delegate
-description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also dispatches and tracks bounded remote Windows Codex turns.
+description: Delegate explicitly requested coding and review work to Claude Code, Kimi Code, OpenCode, Pi, a separate Codex session, or an established user alias for one of them through MCP, with same-session revisions, quiet waiting, recovery, and independent Codex acceptance; continue or recover jobs this Skill started. Also dispatches and tracks bounded remote Windows Codex turns.
 ---
 
 # Codex CLI Delegate
@@ -16,6 +16,12 @@ Resolve every canonical name and established alias to its backend before dispatc
 If the user explicitly names multiple distinct external routes, dispatch one matching job per backend. Give each job one self-contained responsibility; several read-only reviewers may inspect the same subject. Every job that has not released its reservation occupies its checkout regardless of tool profile, so concurrent jobs, including read-only reviews, require distinct non-overlapping worktrees or clones; the same checkout and its nested paths conflict. These are requested participants, not extra reviewers added by default.
 
 Do not start a new external job for native-worker-only requests, explicit solo work, casual explanations, tiny work, or work that is already nearly complete. Use one worker for the coupled responsibility, forward new constraints promptly, and continue the same worker and job for rework instead of creating phase-named jobs. Independent Codex acceptance stays mandatory; do not add a second external reviewer by default, and choose adversarial review only when the user requests it or risk requires it.
+
+The `codex` backend runs a separate local `codex exec` session with the fixed
+`gpt-6-sol/xhigh` profile and resumes the same thread for revisions. It mainly
+serves non-Codex coordinators such as Claude Code. A coordinating Codex opens it
+only when the user explicitly asks for a separate Codex session, never for plain
+solo work. See [Codex](references/codex.md).
 
 When the user explicitly asks the Mac Codex agent to dispatch work to a Windows
 Codex agent, use the separate [Remote Windows Codex](references/remote-codex.md)
@@ -42,9 +48,9 @@ Worktrees and tool allowlists are specific controls, not an operating-system san
 
 - Before tasks that execute scripts, builds, or tests, check only the necessary commands, dependencies, and inputs. Reuse the existing environment; pure reviews do not need a full environment checklist. Resolve preparation within existing authorization.
 - Preserve the user's authorized scope and existing changes. Every concurrent job on an overlapping checkout needs its own non-overlapping worktree or clone, even when read-only; do not bypass this reservation with another state root. A custom state root disables conflict detection across state roots; it does not release or supersede the reservation. Keep real jobs in the shared default state root `${CODEX_HOME:-~/.codex}/claude-delegate`; custom state roots are for isolated tests.
-- Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`, Pi `openrouter/stealth/union-alpha/off`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.
+- Fixed verified profiles: Claude `claude-opus-5/max`, Kimi `kimi-code/k3-256k/max`, OpenCode `deepseek/deepseek-flash/high`, Pi `openrouter/stealth/union-alpha/off`, Codex `gpt-6-sol/xhigh`. Never silently substitute a model or effort. Changing a profile requires adapting invocation and verification together.
 - Claude uses restricted task settings. Declare outside references with `read_dirs`, required inputs with `required_files`, and only narrow authorized Bash rules in `allow_tools`. SDK mode rejects Bash `run_in_background`; do not authorize commands that background themselves or evade the write scope. This is not an OS sandbox. Add authorized commands or references directly with revise. Supply the actual permitted command forms so the agent does not have to guess path spellings; resolve equivalent forms within the existing authorization. User/project custom permissions and hooks are not automatically inherited. If the MCP schema is old, use the installed skill virtual environment to run `scripts/delegate.py revise` with `--expected-round`, `--allow-tool`, `--read-dir`, or `--require-file`; do not redispatch the job or ask the user to restart it.
-- Any applicable Claude quota window at 90% pauses subsequent dispatches and revisions while allowing the active round to finish. Unknown or stale quota is not zero. Do not bypass a pause with a different account, model, threshold, or state root. Read [quota and inputs](references/quota-and-inputs.md) when needed.
+- Any applicable Claude quota window at 90% pauses subsequent dispatches and revisions while allowing the active round to finish. Unknown or stale quota is not zero. Do not bypass a pause with a different account, model, threshold, or state root. Read [quota and inputs](references/quota-and-inputs.md) when needed. The Codex backend only reports each round's native rate-limit snapshot as `quota` (`at_or_above_90` flags 90% or more) and does not pause dispatch.
 - Preserve complete visible model output and exact provenance for material findings, blockers, architecture decisions, or disagreements. Follow [evidence and adjudication](references/review-evidence.md), independently decide each finding, and pass `evidence_dir` to accept. Status summaries are not original evidence; identify reviewers who did not participate.
 - Follow the user's choice of background notifications or in-task waiting. Background mode may end the current Codex turn after the watcher confirms readiness. Desktop-only mode resumes when the user returns; `wake_codex=true` sends one terminal event to the original task through `codex queue`. On return, recheck the job, round, and notification flags; ignore superseded, disabled, accepted, or stopped work. Review independently and re-arm each revision. Queue delivery never accepts work or releases checkout locks. Waiting makes no model calls; resumed review consumes normal Codex usage. In-task waiting continues through review until acceptance, user cancellation, or an actionable blocker.
 
@@ -54,6 +60,7 @@ Read [background notifications](references/notifications.md) for arming, disabli
 
 - [External delegation policy](references/delegation-policy.md): positive and negative triggers, one-worker continuation, independent acceptance, and co-installation precedence.
 - [Kimi](references/kimi.md), [OpenCode](references/opencode.md), and [Pi](references/pi.md): native CLI adapters, tool selection, configuration, JSON events, and native evidence. Bash or PowerShell permission grants the entire shell tool, not Claude command-pattern filtering. MCP reuses these adapters; ACP and OpenCode Server are not implemented.
+- [Codex](references/codex.md): a separate local `codex exec` session, sandbox selection with `codex_tools` (`read`, `write`, `network`), native rollout verification, same-thread revisions, and rate-limit reporting.
 - [Remote Windows Codex](references/remote-codex.md): policy-bound SSH dispatch, exact session/turn observation, carrier-loss boundaries, and independent acceptance. This is separate from local delegation.
 - [Recovery](references/recovery.md): uncertain process identity, missing native evidence, and eligible historical revalidation.
 

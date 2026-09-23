@@ -31,10 +31,10 @@ root. Two distinct boundaries apply:
 | `delegate_process.py` | Process identity/liveness and conservative (Darwin refuse-on-doubt) termination |
 | `delegate_recovery.py` | Live-process blockers, conservative reconciliation, process view |
 | `delegate_completion.py` | Provider-neutral completion and acceptance record transitions |
-| `delegate_transport.py` | Transport adapter registry plus Claude/Kimi/OpenCode/Pi adapters |
+| `delegate_transport.py` | Transport adapter registry plus Claude/Kimi/OpenCode/Pi/Codex adapters |
 | `claude_task.py` | Composition root: CLI parser, public commands, worker lifecycle, Claude parsing/verification |
 | `claude_sdk_backend.py` | Claude Agent SDK transport (its own persistent worker) |
-| `kimi_backend.py`, `opencode_backend.py`, `pi_backend.py` | Native CLI provider adapters |
+| `kimi_backend.py`, `opencode_backend.py`, `pi_backend.py`, `codex_backend.py` | Native CLI provider adapters |
 | `claude_events.py`, `claude_quota.py`, `delegate_notify.py` | Hooks, quota observation, notifications/queue return |
 | `delegate_service.py`, `delegate_mcp.py` | MCP-facing application API and stdio entry point |
 | `review_evidence.py` | Independent evidence-manifest contract |

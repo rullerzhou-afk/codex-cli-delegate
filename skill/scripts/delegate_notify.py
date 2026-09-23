@@ -274,7 +274,7 @@ def tick(ctx, job_id, index, generation, sender=send, expired=False, reconcile=T
             ct.write_json(str(path), data)
             # Fixed strings plus IDs only: never expose task/error content.
             backend = {'claude': 'Claude', 'kimi': 'Kimi', 'opencode': 'OpenCode',
-                       'pi': 'Pi'}.get(job.get('backend'), 'Agent')
+                       'pi': 'Pi', 'codex': 'Codex'}.get(job.get('backend'), 'Agent')
             subtitle = '%s · %s · 第 %d 轮' % (backend, job_id[:8], index + 1)
         else:
             event = None

@@ -151,7 +151,10 @@ Process-level failures that are not `CliError`: `os_error` (unexpected OSError),
 `acceptance_history`, `stopped`, backend tool fields, SDK worker fields, and
 `opencode_version`/`opencode_compatibility`, and Pi's backend-specific
 `pi_tools`, `pi_bin`, `pi_runtime`, `pi_session_dir`, `pi_version`, and
-`pi_compatibility`.
+`pi_compatibility`, and Codex's `codex_tools`, `codex_bin`, `codex_home`,
+`codex_version`, `codex_system_proxy`, and `codex_compatibility`. The additive
+`codex_tools` MCP input appears in request digests only for Codex requests, so
+retries of existing requests keep their digests.
 
 Each entry in `rounds` begins as `claude_task.new_round(...)` and gains
 lifecycle fields as it runs. Current round fields include: `round`, `kind`,

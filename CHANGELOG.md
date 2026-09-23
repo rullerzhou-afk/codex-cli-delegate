@@ -4,6 +4,43 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — local Codex backend
+
+- Added a native `codex` backend: a separate local `codex exec` session with
+  the fixed `gpt-6-sol` / `xhigh` profile. It mainly serves non-Codex
+  coordinators such as Claude Code; a coordinating Codex opens it only on an
+  explicit request for a separate session.
+- Rounds run `codex exec --json`; revisions run `codex exec resume <thread>`,
+  so corrections continue the same native thread. The prompt travels on stdin
+  behind a per-round marker. Delegated runs pass `--ignore-user-config
+  --ignore-rules`, so no MCP servers (including this delegate), notify
+  programs, hook trust or day-to-day approvals carry over; only the user's
+  `respect_system_proxy` feature is mirrored. `CODEX_THREAD_ID` and
+  `CODEX_SQLITE_HOME` are removed from the worker environment.
+- The default executable is the ChatGPT desktop app's bundled runtime; `PATH`
+  and `--codex-bin` are fallbacks and overrides. Preflight checks the `exec` /
+  `exec resume` options and requires the CLI's own `debug models` catalog to
+  offer the exact model at `xhigh`; there is no fallback.
+- `codex_tools` selects the sandbox: `read` (default, read-only), `write`
+  (workspace-write) and `network` (requires write). Approval is fixed at
+  `never`. The additive MCP input enters request digests only for Codex
+  requests.
+- Completion requires exit 0 and exactly one thread and one turn in the JSON
+  stream, ending in `turn.completed`. The native rollout, found by thread id
+  across day folders, must show the marked turn with the requested model,
+  effort, cwd, sandbox, network access and approval.
+  `task_complete.last_agent_message`, the last streamed `agent_message` and
+  the `-o` file must agree. Revisions also check the pre-revision rollout
+  prefix digest, and a later foreign turn fails closed.
+- Each round reports the native Codex rate-limit snapshot as `quota`
+  (`at_or_above_90`); dispatch is not paused.
+- Evidence export understands Codex `agent_message` items, and notifications
+  name the backend `Codex`.
+- Tests: 17 new Codex backend tests plus catalog coverage. One real macOS
+  two-round smoke, driven from Claude Code with desktop runtime
+  0.155.0-alpha.9.2, verified the profile, sandbox, same-thread resume, and
+  process identity.
+
 ## Unreleased — bounded Windows Codex SSH dispatch
 
 - Added a separate, policy-bound `remote_codex_task.py` entry point and a

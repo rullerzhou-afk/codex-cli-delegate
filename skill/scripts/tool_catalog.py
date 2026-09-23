@@ -7,6 +7,10 @@ OPENCODE_DEFAULT = ('read', 'glob', 'grep')
 OPENCODE_ALIASES = {'write': 'edit', 'apply_patch': 'edit', 'multiedit': 'edit'}
 PI_TOOLS = ('read', 'bash', 'powershell', 'edit', 'write', 'grep', 'find', 'ls')
 PI_DEFAULT = ('read', 'grep', 'find', 'ls')
+# Codex always has its sandboxed shell; these select the sandbox instead:
+# read = read-only, write = workspace-write in cwd, network = outbound access.
+CODEX_TOOLS = ('read', 'write', 'network')
+CODEX_DEFAULT = ('read',)
 CLAUDE_OPTIONAL = ('WebFetch', 'WebSearch')
 
 
@@ -14,7 +18,8 @@ def select(backend, requested):
     from claude_task import CliError
     catalogs = {'kimi': (KIMI_TOOLS, KIMI_DEFAULT),
                 'opencode': (OPENCODE_TOOLS, OPENCODE_DEFAULT),
-                'pi': (PI_TOOLS, PI_DEFAULT)}
+                'pi': (PI_TOOLS, PI_DEFAULT),
+                'codex': (CODEX_TOOLS, CODEX_DEFAULT)}
     try:
         supported, defaults = catalogs[backend]
     except KeyError:
@@ -39,5 +44,7 @@ def capabilities():
             'aliases': OPENCODE_ALIASES, 'notes': 'edit covers write/apply_patch. Web search and LSP require existing provider/server support.'},
             'pi': {'default': list(PI_DEFAULT), 'supported': list(PI_TOOLS),
             'notes': 'Delegated runs disable extensions and enable only selected built-in tools. Bash and PowerShell grant a whole shell.'},
+            'codex': {'default': list(CODEX_DEFAULT), 'supported': list(CODEX_TOOLS),
+            'notes': 'Codex always has a sandboxed shell. read = read-only sandbox; write = workspace-write in cwd; network (requires write) allows outbound access.'},
             'claude': {'media': 'Read supports images/PDF; NotebookEdit handles notebook cells.',
             'optional': list(CLAUDE_OPTIONAL), 'notes': 'Select web access with allow_tools. WebFetch may use a helper model.'}}

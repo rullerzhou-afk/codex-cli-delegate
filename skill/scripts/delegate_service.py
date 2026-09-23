@@ -49,6 +49,9 @@ class DelegateService:
             from claude_quota import status
             q = status(ctx.state_dir, job.get("claude_config_dir"))
             data["quota"] = {k: q[k] for k in ("state", "blocking_windows", "action")}
+        elif job.get("backend") == "codex" and v.get("codex_rate_limits"):
+            # Reported, not enforced: the round's own native rate-limit snapshot.
+            data["quota"] = v["codex_rate_limits"]
         data["next_action"] = (
             "wait" if job["phase"] in ct.BUSY_PHASES else
             "independently_review_then_accept_or_revise" if job["phase"] == ct.PHASE_AWAITING_REVIEW else
@@ -85,9 +88,9 @@ class DelegateService:
 
     def start(self, owner, request_id, cwd, task, backend="claude", allow_tools=None,
               read_dirs=None, required_files=None, timeout=None, max_revisions=None,
-              kimi_tools=None, opencode_tools=None, pi_tools=None):
-        if backend not in ("claude", "kimi", "opencode", "pi"):
-            raise ct.CliError("unsupported_backend", "supported agents: claude, kimi, opencode, pi")
+              kimi_tools=None, opencode_tools=None, pi_tools=None, codex_tools=None):
+        if backend not in ("claude", "kimi", "opencode", "pi", "codex"):
+            raise ct.CliError("unsupported_backend", "supported agents: claude, kimi, opencode, pi, codex")
         if not isinstance(task, str) or not task.strip() or len(task.encode()) > ct.PROMPT_MAX_BYTES:
             raise ct.CliError("bad_task", "task must contain 1–1048576 UTF-8 bytes")
         spec = dict(cwd=ct.validate_cwd(cwd), task=task, backend=backend,
@@ -98,6 +101,8 @@ class DelegateService:
         # additive backend update. Pi requests include their own tool field.
         if backend == "pi" or pi_tools:
             spec["pi_tools"] = pi_tools or []
+        if backend == "codex" or codex_tools:
+            spec["codex_tools"] = codex_tools or []
 
         def launch(ctx, request, prompt):
             ct.atomic_write_bytes(str(prompt), task.encode())
@@ -107,7 +112,8 @@ class DelegateService:
                                    read_dir=spec["read_dirs"], require_file=spec["required_files"],
                                    kimi_bin=None, kimi_tool=spec["kimi_tools"], opencode_bin=None,
                                    opencode_tool=spec["opencode_tools"], pi_bin=None,
-                                   pi_tool=spec.get("pi_tools", []), request=request)
+                                   pi_tool=spec.get("pi_tools", []), codex_bin=None,
+                                   codex_tool=spec.get("codex_tools", []), request=request)
             return ct.cmd_start(ctx, args)
 
         return self.dispatch(owner, request_id, "start", spec, launch)

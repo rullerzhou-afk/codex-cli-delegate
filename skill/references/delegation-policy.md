@@ -30,6 +30,11 @@ A new external job requires both of these together:
   implementation, focused verification, and the necessary documentation when
   those parts are tightly coupled.
 
+The `codex` backend (a separate `codex exec` session) follows the same gate.
+It mainly serves non-Codex coordinators such as Claude Code; a coordinating
+Codex opens it only on an explicit request for a separate Codex session, never
+for a plain "do it yourself".
+
 Neither condition alone opens the gate. Continuation and recovery of an
 external job this Skill already started are allowed resolution paths that do
 not need a new explicit request. The negative triggers below still stop a new

@@ -2,7 +2,7 @@
 
 [中文说明](README.zh-CN.md)
 
-A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, OpenCode, and Pi**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
+A community Codex skill for delegating coding and review work to **Claude Code, Kimi Code, OpenCode, Pi, and a separate Codex session**, through a local **MCP server**, with same-session revisions and independent acceptance by Codex. The skill provides operating rules; MCP provides eight delegation tools. The original CLI entry point remains available.
 
 It also dispatches and observes one bounded **remote Windows Codex CLI turn** over SSH. This policy-bound path and local multi-provider delegation are separate capabilities.
 
@@ -11,7 +11,8 @@ It also dispatches and observes one bounded **remote Windows Codex CLI turn** ov
 - Keeps Claude Agent SDK sessions alive between revision rounds; resumes the saved native session after a worker restart.
 - Adds authorized command rules and reference inputs to the same Claude job, refreshing an idle connection automatically. Accepted jobs can be continued with their prior acceptance preserved. Long paths and commas in command rules are supported.
 - Defaults to no wall-clock termination; explicit runtime limits remain available, and old jobs can remove their limit during same-session recovery.
-- Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode/Pi retain native CLI adapters.
+- Owns jobs by Codex task, locks checkouts, and deduplicates retried MCP requests. Kimi/OpenCode/Pi/Codex retain native CLI adapters.
+- Delegates to a separate local `codex exec` session (fixed `gpt-6-sol` / `xhigh`) and resumes the same thread for revisions. This is mainly for non-Codex coordinators such as Claude Code; see [Codex](skill/references/codex.md).
 - Optionally sends macOS reminders and returns terminal results to the original Codex task for independent review, without model polling while waiting.
 - Observes hooks and structured progress without repeated model calls to check status.
 - Verifies native session, model, effort, completion, and formal output before handing work back for review.
@@ -39,12 +40,13 @@ An explicit request to dispatch from Mac Codex to a Windows Codex agent uses the
 
 | Capability | Current scope |
 | --- | --- |
-| Local Claude SDK / Kimi CLI / OpenCode CLI / Pi CLI delegation | Validated on macOS; not a supported Windows local runner |
+| Local Claude SDK / Kimi CLI / OpenCode CLI / Pi CLI / Codex CLI delegation | Validated on macOS; not a supported Windows local runner |
 | Remote Codex dispatch and observation | One allowlisted macOS → Windows SSH task with Node.js, PowerShell, finite timeout, and exact native-log verification |
 | OpenCode profile | Reference CLI 1.18.30; capability-checked versions; `deepseek/deepseek-flash`, variant `high` |
 | Claude profile | `claude-opus-5`, effort `max`; restricted settings require CLI 2.1.248+ |
 | Kimi profile | `kimi-code/k3-256k`, effort `max`; existing thinking settings and managed hooks required |
 | Pi profile | OpenRouter `stealth/union-alpha`, thinking `off`; exact model/auth preflight, isolated native session, extensions disabled |
+| Codex profile | `gpt-6-sol`, effort `xhigh`; the ChatGPT desktop runtime by default, or any Codex CLI whose catalog offers the model; user config and rules not loaded; read-only sandbox by default |
 
 Profiles are fixed and verified by the adapters. This release does not expose arbitrary model selection. OpenCode records the actual version and checks required CLI options before starting; a different version alone does not block execution. Native session, model, effort, and completion verification remain mandatory after each round. Passing the option check is not proof that every behavior of a new release is compatible.
 
@@ -67,7 +69,7 @@ fi
 
 The **whole `skill/` folder** is required. MCP/SDK needs **Python 3.12+** and the pinned dependencies; the original CLI path supports Python 3.9+ without them. The selected CLI must already be installed and authenticated. Node.js is needed for remote Windows dispatch/observation and the JavaScript tests. This repository does not install model clients, copy login credentials, or configure providers.
 
-For Kimi, read [the setup reference](skill/references/kimi.md) before installing its three managed hooks from the final installed path. For Pi, read [the Pi and OpenRouter reference](skill/references/pi.md); the exact Union Alpha model must resolve before dispatch. OpenCode uses per-process plugin configuration and preserves existing user plugins; Claude uses isolated task settings and task-scoped SDK hooks. Global/project custom hooks are not automatically inherited.
+For Kimi, read [the setup reference](skill/references/kimi.md) before installing its three managed hooks from the final installed path. For Pi, read [the Pi and OpenRouter reference](skill/references/pi.md); the exact Union Alpha model must resolve before dispatch. For Codex, read [the Codex reference](skill/references/codex.md); the runtime's own model catalog must offer `gpt-6-sol` at `xhigh`, and it describes how a Claude Code coordinator registers the server. OpenCode uses per-process plugin configuration and preserves existing user plugins; Claude uses isolated task settings and task-scoped SDK hooks. Global/project custom hooks are not automatically inherited.
 
 For MCP, create the environment at the final installed path and install the pinned packages:
 
@@ -111,11 +113,11 @@ The Kimi hook receiver requires a working `/usr/bin/python3`; verify it with `/u
 
 ## Permissions and evidence
 
-Default OpenCode/Kimi/Pi profiles are read-only. Opting into a CLI backend's Bash or PowerShell tool grants shell capability, not Claude-style command-pattern filtering. See the backend references before adding tools. This tool does not create an operating-system sandbox.
+Default OpenCode/Kimi/Pi/Codex profiles are read-only. Opting into a CLI backend's Bash or PowerShell tool grants shell capability, not Claude-style command-pattern filtering. Codex always has a sandboxed shell; `codex_tools` chooses the read-only or workspace-write sandbox and optional network access, with approval fixed at `never`. See the backend references before adding tools. This tool does not create an operating-system sandbox.
 
 Completion hooks and idle events are notifications, not proof of success. The worker checks native records at the SDK result boundary or, for CLI rounds, after process exit. SDK acceptance closes the idle connection; waiting alone makes no new model calls. Automatic task continuation is a separate opt-in notification subscription, not a consequence of waiting or receiving a hook. Closed-app and reboot recovery are not guaranteed.
 
-Quota monitoring uses Claude's native account windows. Missing or stale data remains unknown; this is not a guaranteed hard spending cap. Kimi, DeepSeek, and Pi/OpenRouter account quotas are not monitored.
+Quota monitoring uses Claude's native account windows. Missing or stale data remains unknown; this is not a guaranteed hard spending cap. Kimi, DeepSeek, and Pi/OpenRouter account quotas are not monitored. Codex reports each round's native rate-limit snapshot as `quota` but does not pause dispatch.
 
 Task prompts, CLI streams, credentials, configuration, and task evidence are **not part of this repository**. Exported evidence contains visible model responses and provenance, not private reasoning; review it before sharing. Local routing and file hashes are not a defense against a malicious process running as the same user.
 
@@ -130,7 +132,7 @@ export CLAUDE_DELEGATE_PYTHON=/path/to/python3.12   # interpreter with the pinne
 
 `run_tests.py` runs every Python and JavaScript test and prints one JSON result (per-suite counts, JavaScript counts, and the exact process-identity modules included or excluded). Add `--json-out aggregate.json` to save it.
 
-Current local aggregate: **270 Python and 20 JavaScript tests pass** with fixtures. The portable split is 186 Python plus 20 JavaScript tests; the macOS process-identity split is 84 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
+Current local aggregate: **287 Python and 20 JavaScript tests pass** with fixtures. The portable split is 203 Python plus 20 JavaScript tests; the macOS process-identity split is 84 Python tests with no skips. This is the only current total; historical per-feature counts are in the [changelog](CHANGELOG.md).
 
 The suite drives the public `scripts/delegate.py` and a real stdio `scripts/delegate_mcp.py`. The frozen black-box contract is described in [public contracts](docs/CONTRACTS.md) and the [freeze marker](work/skill-verification/BLACKBOX_FROZEN.md). Process-identity tests launch real detached workers and need permission to inspect local processes; CI runs portable Python/JavaScript fixtures on Linux and a separately labelled `macos-process-identity` job. That macOS job is the intended required check, but a workflow cannot enforce it: selecting it under branch protection or a ruleset is a maintainer action and is not configured or tested by this repository. Some older white-box tests still inspect `claude_task` internals and are expected to move with the remaining runtime refactor.
 
@@ -153,3 +155,9 @@ limit are recorded in the [changelog](CHANGELOG.md) and
 Kimi's default read-only selection includes ReadMediaFile for image/video input; WebSearch, FetchURL and TodoList are selectable. Claude supports NotebookEdit and explicitly authorized WebFetch/WebSearch. OpenCode adds webfetch/websearch/todowrite/lsp, with write/apply_patch aliases mapped to edit. Pi defaults to read/grep/find/ls and disables extensions, skills, prompt templates, themes, and project context files for delegated runs. CLI and MCP share one catalog; `scripts/delegate.py capabilities` lists it offline. See [capabilities and existing-session limits](skill/references/tools.md).
 
 One real Kimi 0.42.0 task used ReadMediaFile, returned image content, and correctly identified a synthetic image's colors and shapes without Bash. New web/notebook/LSP tools have not been exercised against their real providers. Existing Kimi sessions retain their saved tool profile; this update does not change it.
+
+### Codex backend (2026-09-23)
+
+The new `codex` backend delegates to a separate local `codex exec` session with the fixed `gpt-6-sol` / `xhigh` profile. Revisions use `codex exec resume` on the same thread. Delegated runs load neither the user's `config.toml` nor execpolicy rules, so no MCP servers (including this delegate), notify programs, or hook trust carry over; only the user's `respect_system_proxy` feature is mirrored. Completion is verified from the native rollout's marked turn: model, effort, cwd, sandbox, approval, and final text must all match. Each receipt reports the round's rate-limit snapshot. The backend mainly serves non-Codex coordinators such as Claude Code; see [Codex](skill/references/codex.md) for the Claude Code launcher and wake-up pattern.
+
+One real two-round macOS smoke drove it from Claude Code with the ChatGPT desktop runtime 0.155.0-alpha.9.2: a read-only lookup, then a same-thread rewrite. On the same machine, standalone CLI 0.154.0 could not run `gpt-6-sol`; 0.156.0 lists it in its catalog.
