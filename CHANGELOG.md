@@ -4,6 +4,24 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Claude profile moves to Opus 5.5
+
+- The fixed Claude profile is now `claude-opus-5-5` / `max` instead of
+  `claude-opus-5` / `max`. Effort is still passed explicitly, because Opus 5.5
+  defaults to `medium`. Model and per-entry effort verification are unchanged.
+- A Claude revision records the current fixed profile on the job. When that
+  profile differs from the job's saved one, the job also moves to the
+  currently resolved Claude Code CLI, because each job pins a versioned CLI
+  path that may predate the model. An idle SDK connection is then refreshed
+  before the same session continues, just as it is for authorized additions.
+  Same-profile revisions keep the job's pinned CLI.
+- The fake Claude CLIs now report the model they were launched with instead of
+  a hard-coded one. One new SDK lifecycle test moves an old-profile job to the
+  current model and CLI, then checks that a same-profile revision keeps it.
+- The executing Claude Code CLI must know `claude-opus-5-5`; 2.1.280 is the
+  first version observed with it. The profile has fixture coverage only; no
+  real run yet.
+
 ## Unreleased — local Codex backend
 
 - Added a native `codex` backend: a separate local `codex exec` session with

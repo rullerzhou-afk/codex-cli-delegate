@@ -42,6 +42,8 @@ another.
 - **Claude Code:** one three-round macOS SDK smoke verified same-process
   continuation, same-session recovery after restart, context retention, Stop
   events, and cache reads; fixed `claude-opus-5`/`max` verification was met.
+  On 2026-09-23 the fixed Claude profile moved to `claude-opus-5-5`/`max`.
+  The new profile is covered by fixtures only and has not had a real run yet.
   Recorded in
   [MCP validation](../skill/references/mcp.md#validation-and-maintenance).
 - **Kimi:** one real Kimi 0.42.0 task used `ReadMediaFile`, returned image

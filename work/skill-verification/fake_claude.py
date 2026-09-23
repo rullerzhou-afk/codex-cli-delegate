@@ -35,7 +35,7 @@ time.sleep(task.get("delay", 0.1))
 if task.get("scenario") == "synthetic_error":
     model, is_error = "<synthetic>", True
 else:
-    model, is_error = task.get("actual_model", "claude-opus-5"), False
+    model, is_error = task.get("actual_model", arg("--model")), False
 message = {"role": "assistant", "model": model,
            "content": [{"type": "text", "text": task.get("tag", "fixture result")}]}
 record = {"type": "assistant", "uuid": str(uuid.uuid4()), "sessionId": session, "message": message}

@@ -22,13 +22,13 @@ task=json.load(sys.stdin);sid=arg('--resume') or arg('--session-id')
 home=Path(os.environ['CLAUDE_CONFIG_DIR']);home.mkdir(exist_ok=True,parents=True)
 with (home/'ledger.jsonl').open('a') as f:f.write(json.dumps({'session':sid,'argv':sys.argv[1:]})+'\n')
 def emit(x):print(json.dumps(dict(session_id=sid,**x)),flush=True)
-emit(dict(type='system',subtype='init',model='claude-opus-5'))
+emit(dict(type='system',subtype='init',model=arg('--model')))
 if 'quota' in task:
  emit(dict(type='rate_limit_event',rate_limit_info=dict(status='allowed',unifiedWindows=dict(
   five_hour=dict(utilization=task['quota'],resetsAt=time.time()+7200),
   seven_day=dict(utilization=.2,resetsAt=time.time()+604800)))))
 time.sleep(task.get('delay',.1))
-message=dict(role='assistant',model='claude-opus-5',content=[dict(type='text',text='FAKE_COMPLETE')])
+message=dict(role='assistant',model=arg('--model'),content=[dict(type='text',text='FAKE_COMPLETE')])
 p=home/'projects'/re.sub(r'[^a-zA-Z0-9]','-',os.getcwd())/(sid+'.jsonl');p.parent.mkdir(parents=True,exist_ok=True)
 with p.open('a') as f:f.write(json.dumps(dict(type='assistant',uuid=str(uuid.uuid4()),sessionId=sid,effort='max',version='2.1.261',message=message))+'\n')
 emit(dict(type='assistant',message=message))

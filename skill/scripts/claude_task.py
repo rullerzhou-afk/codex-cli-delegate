@@ -17,7 +17,7 @@ Invariants:
 * Nothing passes on Claude's say-so. A round reaches ``awaiting_review`` only
   with exit 0 (CLI) or an SDK result boundary, exactly one result event whose ``is_error is False`` and
   ``subtype == "success"`` and whose ``session_id`` equals the saved session,
-  assistant events reporting ``claude-opus-5``, and a local transcript whose new
+  assistant events reporting ``claude-opus-5-5``, and a local transcript whose new
   assistant entries all record ``effort=max``.  Acceptance stays a Codex act.
 * Signals go only to a PID whose recorded start time and unique run token still
   match.  ``ps`` failure is never read as proof a process is gone.
@@ -68,7 +68,7 @@ from delegate_process import (STATE_GONE, capture_identity, identity_state, pid_
 # Legacy alias: callers and fixtures that referenced the old constant name.
 SCHEMA_VERSION = JOB_STATE_SCHEMA_VERSION
 
-MODEL = "claude-opus-5"
+MODEL = "claude-opus-5-5"
 EFFORT = "max"
 
 BASE_ALLOWED_TOOLS = ("Read", "Glob", "Grep")
@@ -1275,11 +1275,15 @@ def revise_transaction(ctx, args):
                 conflict_phase=conflict.get("phase"),
             )
 
+        profile = (job.get("model"), job.get("effort"), job.get("claude_bin"))
         job.update(revision_fields)
 
+        # An idle connection keeps the options and CLI it was opened with, so a
+        # new fixed profile needs a fresh connection just like authorized additions.
         if (job.get("transport") == "sdk" and identity_state(job.get("sdk_worker")) == "alive"
-                and (read_dirs != job.get("read_dirs", []) or allow_tools != job.get("allow_tools", []))):
-            raise CliError("sdk_scope_changed", "refreshing idle connection for authorized additions",
+                and (read_dirs != job.get("read_dirs", []) or allow_tools != job.get("allow_tools", [])
+                     or profile != (job.get("model"), job.get("effort"), job.get("claude_bin")))):
+            raise CliError("sdk_scope_changed", "refreshing idle connection for authorized additions or profile",
                            round=job["current_round"])
 
         job_root = ctx.job_dir(job["job_id"])

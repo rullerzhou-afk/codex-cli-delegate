@@ -31,7 +31,7 @@ Restricted settings do not create an OS sandbox or a worktree. Check the actual 
 
 | Backend | Fixed model | Effort / variant |
 | --- | --- | --- |
-| Claude Code | `claude-opus-5` | `max` |
+| Claude Code | `claude-opus-5-5` | `max` |
 | Kimi Code | `kimi-code/k3-256k` | `max` |
 | OpenCode | `deepseek/deepseek-flash` | `high` |
 | Pi | `openrouter/stealth/union-alpha` | `off` |

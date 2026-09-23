@@ -160,7 +160,13 @@ class ClaudeTransport(Transport):
     def revision_config(self, ctx, job, read_dirs, required_files):
         import claude_task as ct
         ct.quota_gate(ctx, job.get("claude_config_dir"), refresh=True)
-        return {}
+        # Revisions always run the current fixed profile; record it so status
+        # and acceptance name the model that actually ran.
+        fields = {"model": ct.MODEL, "effort": ct.EFFORT}
+        if (job.get("model"), job.get("effort")) != (ct.MODEL, ct.EFFORT):
+            # The job may pin a CLI version that predates the current model.
+            fields["claude_bin"] = ct.resolve_claude_bin(ctx.claude_bin_raw)
+        return fields
 
     def baseline(self, job):
         import claude_task as ct

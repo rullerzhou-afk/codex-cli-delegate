@@ -117,6 +117,32 @@ class SDKLifecycle(unittest.TestCase):
         self.assertEqual(saved["rounds"][1]["access"]["allow_tools"], [rule])
         self.service.accept(self.owner, job, 2, "Verified continued native fixture session.")
 
+    def test_revision_moves_an_old_profile_job_to_the_current_model_and_cli(self):
+        job = self.start(tag="before")["job_id"]
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        ctx = self.service.context(self.owner)
+        current = ctx.load_owned(job)["claude_bin"]
+        old_cli = self.root / "old-claude"
+        shutil.copyfile(Path(__file__).with_name("fake_sdk_cli.py"), old_cli)
+        old_cli.chmod(0o700)
+        with ct.StateLock(ctx.state_dir):
+            saved = ctx.load_owned(job)
+            # Saved before the fixed profile moved on, pinned to an older CLI.
+            saved.update(model="claude-opus-5", claude_bin=str(old_cli))
+            ctx.save(saved)
+        self.service.revise(self.owner, "new-profile", job, 0, json.dumps({"tag": "after"}))
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        calls = [json.loads(s) for s in (self.home / "calls.ndjson").read_text().splitlines()]
+        self.assertNotEqual(calls[0]["pid"], calls[1]["pid"])
+        self.assertEqual(calls[0]["session"], calls[1]["session"])
+        self.assertEqual((calls[1]["model"], calls[1]["exe"]), (ct.MODEL, current))
+        revised = ctx.load_owned(job)
+        self.assertEqual((revised["model"], revised["claude_bin"]), (ct.MODEL, current))
+        # A same-profile revision keeps the job's pinned CLI.
+        self.service.revise(self.owner, "same-profile", job, 1, json.dumps({"tag": "again"}))
+        self.assertEqual(self.settle(job)["phase"], "awaiting_review")
+        self.assertEqual(ctx.load_owned(job)["claude_bin"], current)
+
     def test_invalid_additions_leave_idle_session_untouched(self):
         job = self.start(tag="before")["job_id"]
         self.assertEqual(self.settle(job)["phase"], "awaiting_review")

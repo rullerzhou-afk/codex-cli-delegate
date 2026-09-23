@@ -57,12 +57,14 @@ for line in sys.stdin:
     task = json.JSONDecoder().raw_decode(message["message"]["content"])[0]
     with (root / "calls.ndjson").open("a") as f:
         f.write(json.dumps({"pid": os.getpid(), "session": session, "tag": task.get("tag"),
-                            "resume": arg("--resume"), "settings": json.loads(Path(arg("--settings")).read_text()),
+                            "resume": arg("--resume"), "model": arg("--model"),
+                            "exe": os.path.realpath(sys.argv[0]),
+                            "settings": json.loads(Path(arg("--settings")).read_text()),
                             "prompt": message["message"]["content"]}) + "\n")
     if task.get("delay"):
         time.sleep(task["delay"])
     emit({"type": "system", "subtype": "init", "session_id": session, "model": arg("--model")})
-    model = task.get("model", "claude-opus-5")
+    model = task.get("model", arg("--model"))  # like the real CLI, report the launched model
     assistant = {"id": str(uuid.uuid4()), "role": "assistant", "model": model,
                  "content": [{"type": "text", "text": task.get("tag", "fixture")}]}
     transcript.parent.mkdir(parents=True, exist_ok=True)
