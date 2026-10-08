@@ -17,6 +17,57 @@ from types import SimpleNamespace
 import claude_task as ct
 
 SDK_VERSION = "0.2.152"
+CLAWD_HOOK_MARKER = "clawd-hook.js"
+
+
+def user_settings_path():
+    """The single user settings file the restricted SDK session may borrow from."""
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
+    if config_dir:
+        return Path(config_dir) / "settings.json"
+    return Path.home() / ".claude" / "settings.json"
+
+
+def is_clawd_status_hook(entry):
+    if not isinstance(entry, dict):
+        return False
+    command = entry.get("command")
+    return (entry.get("type") == "command" and isinstance(command, str)
+            and CLAWD_HOOK_MARKER in command)
+
+
+def clawd_status_hooks():
+    """Clawd's own status hooks, lifted out of the user settings.
+
+    Restricted mode loads only the generated per-run settings file, so the
+    user's hooks never run and the Clawd desktop HUD cannot see delegated Claude
+    sessions. Carry over just the Clawd status command hooks. The Clawd
+    permission hook is excluded on purpose: this transport runs with
+    permission_mode="dontAsk" and must not pop approval bubbles. Every other
+    program's hooks keep the isolation unchanged. Unreadable, malformed or
+    unexpected settings are ignored so a dispatch never fails over them.
+    """
+    try:
+        raw = json.loads(user_settings_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError, RuntimeError):
+        return {}
+    hooks = raw.get("hooks") if isinstance(raw, dict) else None
+    if not isinstance(hooks, dict):
+        return {}
+    kept = {}
+    for event, groups in hooks.items():
+        if not isinstance(groups, list):
+            continue
+        matched = []
+        for group in groups:
+            if not isinstance(group, dict) or not isinstance(group.get("hooks"), list):
+                continue
+            entries = [entry for entry in group["hooks"] if is_clawd_status_hook(entry)]
+            if entries:
+                matched.append(dict(group, hooks=entries))
+        if matched:
+            kept[event] = matched
+    return kept
 
 
 def preflight():
@@ -124,6 +175,9 @@ class SDKWorker:
         from claude_events import hook_settings
         settings = hook_settings("unused", self.ctx.state_dir, self.job, record)
         settings.pop("hooks")
+        clawd_hooks = clawd_status_hooks()
+        if clawd_hooks:
+            settings["hooks"] = clawd_hooks
         settings_path = self.root / "sdk-settings.json"
         ct.write_json(str(settings_path), settings)
         guidance = ("Work within the delegated task and primary working directory. "

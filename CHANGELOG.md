@@ -4,6 +4,24 @@ Historical per-feature test counts live here so the README can report one
 current, unambiguous repository total. For the current total and the single
 command that produces it, see [Tests](README.md#tests).
 
+## Unreleased — Clawd status hooks for SDK-delegated Claude
+
+- The restricted SDK transport previously inherited none of the user settings'
+  command hooks, so none of them ever ran. Before it writes the per-run
+  `sdk-settings.json`, it now lifts only Clawd on Desk's status command hooks
+  (entries whose command contains `clawd-hook.js`) out of the user settings file
+  (`$CLAUDE_CONFIG_DIR/settings.json`, or `~/.claude/settings.json` when unset or
+  empty) so the Clawd desktop HUD can show a delegated Claude session. Event
+  names, matchers, timeouts, and async flags survive unchanged.
+- Excluded on purpose: Clawd's HTTP permission hook (this transport runs with
+  `permission_mode="dontAsk"`) and every other program's hooks. A missing,
+  unreadable, malformed, or unexpected settings file simply contributes nothing,
+  so a dispatch never fails over it. The CLI path is unchanged, and users
+  without Clawd see no behavior change.
+- 7 Python fixture tests were added, all portable (temporary `CLAUDE_CONFIG_DIR`
+  or `HOME`, never the real `~/.claude`). Current aggregate: 311 Python and 34
+  JavaScript tests pass (portable 226 + 34, process identity 85).
+
 ## Unreleased — extra writable directories for remote Codex
 
 - A Windows Codex task can write one to four directories beyond its workspace
